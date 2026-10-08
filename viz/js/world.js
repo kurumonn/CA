@@ -1,8 +1,8 @@
 // 3D 空間とモデル（すべてコードで生成する。外部の GLB や画像は使わない）。
-// モデル ID は docs/3d-space-design.md のモデル一覧に対応する。
+// モデル ID は docs/05_3d-space-design.md のモデル一覧に対応する。
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { STATIONS, GATES } from './lesson.js';
+import { STATIONS, GATES, CARDS } from './lesson.js';
 
 // ---------------------------------------------------------------------------
 // 材質
@@ -67,17 +67,18 @@ function cyl(rt, rb, h, mat, seg = 32) {
 function at(obj, x, y, z, ry = 0) { obj.position.set(x, y, z); obj.rotation.y = ry; return obj; }
 function group(...children) { const g = new THREE.Group(); children.forEach((c) => g.add(c)); return g; }
 
-// 日本語ラベル（Canvas テクスチャのスプライト）
-export function makeLabel(text, { size = 0.32, color = '#ffffff', bg = 'rgba(15,20,30,0.78)', accent = null, weight = 700 } = {}) {
+// 日本語ラベル（Canvas テクスチャのスプライト）。setLabelText で書き換えられる。
+function labelTexture(text, { color = '#ffffff', bg = 'rgba(15,20,30,0.78)', accent = null, weight = 700 } = {}) {
   const lines = String(text).split('\n');
   const px = 64;
+  const font = `${weight} ${px}px "Hiragino Sans","Noto Sans JP","Yu Gothic",system-ui,sans-serif`;
   const c = document.createElement('canvas');
   const ctx = c.getContext('2d');
-  ctx.font = `${weight} ${px}px "Hiragino Sans","Noto Sans JP","Yu Gothic",system-ui,sans-serif`;
+  ctx.font = font;
   const w = Math.ceil(Math.max(...lines.map((l) => ctx.measureText(l).width))) + px;
   const h = lines.length * px * 1.25 + px * 0.5;
   c.width = w; c.height = h;
-  ctx.font = `${weight} ${px}px "Hiragino Sans","Noto Sans JP","Yu Gothic",system-ui,sans-serif`;
+  ctx.font = font;
   ctx.fillStyle = bg;
   roundRect(ctx, 0, 0, w, h, px * 0.35); ctx.fill();
   if (accent) { ctx.fillStyle = accent; roundRect(ctx, 0, 0, px * 0.22, h, px * 0.1); ctx.fill(); }
@@ -86,11 +87,26 @@ export function makeLabel(text, { size = 0.32, color = '#ffffff', bg = 'rgba(15,
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
-  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthWrite: false, transparent: true }));
-  const scale = size / px;
-  sp.scale.set(w * scale, h * scale, 1);
+  return { tex, w, h, px };
+}
+
+export function makeLabel(text, opts = {}) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ depthWrite: false, transparent: true }));
   sp.renderOrder = 10;
+  sp.userData.opts = opts;
+  setLabelText(sp, text);
   return sp;
+}
+
+export function setLabelText(sp, text) {
+  if (sp.userData.text === text) return;
+  const { tex, w, h, px } = labelTexture(text, sp.userData.opts);
+  sp.material.map?.dispose();
+  sp.material.map = tex;
+  sp.material.needsUpdate = true;
+  const scale = (sp.userData.opts.size ?? 0.32) / px;
+  sp.scale.set(w * scale, h * scale, 1);
+  sp.userData.text = text;
 }
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -98,25 +114,30 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
 }
 
-// 証明書カードの表面（Canvas に項目を描く）
-function cardFace(title, rows, accent) {
+// 証明書カード・CRL ボードの表面（Canvas に項目を描く）。内容は条件に合わせて描き直す。
+function cardTexture(content, accent) {
   const c = document.createElement('canvas');
   c.width = 512; c.height = 320;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = '#f7f4ec'; ctx.fillRect(0, 0, 512, 320);
-  ctx.fillStyle = accent; ctx.fillRect(0, 0, 512, 64);
-  ctx.fillStyle = '#fff';
-  ctx.font = '700 34px "Hiragino Sans","Noto Sans JP",system-ui,sans-serif';
-  ctx.fillText(title, 20, 44);
-  ctx.fillStyle = '#1d2433';
-  ctx.font = '500 24px ui-monospace,"Noto Sans Mono",monospace';
-  rows.forEach((r, i) => ctx.fillText(r, 20, 104 + i * 38));
-  // 署名欄（押印のたとえ）
-  ctx.strokeStyle = accent; ctx.lineWidth = 5;
-  ctx.beginPath(); ctx.arc(450, 262, 38, 0, Math.PI * 2); ctx.stroke();
-  ctx.fillStyle = accent; ctx.font = '700 22px system-ui'; ctx.fillText('署名', 428, 270);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.userData.draw = ({ title, rows }) => {
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#f7f4ec'; ctx.fillRect(0, 0, 512, 320);
+    ctx.fillStyle = accent; ctx.fillRect(0, 0, 512, 64);
+    ctx.fillStyle = '#fff';
+    ctx.font = '700 32px "Hiragino Sans","Noto Sans JP",system-ui,sans-serif';
+    ctx.fillText(title, 20, 44);
+    ctx.fillStyle = '#1d2433';
+    ctx.font = '500 23px ui-monospace,"Noto Sans Mono","Noto Sans JP",monospace';
+    rows.forEach((r, i) => ctx.fillText(r, 20, 100 + i * 36));
+    // 署名欄（押印のたとえ）
+    ctx.strokeStyle = accent; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.arc(462, 276, 32, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = accent; ctx.font = '700 20px system-ui'; ctx.fillText('署名', 442, 283);
+    tex.needsUpdate = true;
+    tex.userData.content = { title, rows: [...rows] };
+  };
+  tex.userData.draw(content);
   return tex;
 }
 
@@ -126,15 +147,17 @@ function cardFace(title, rows, accent) {
 
 // A24 秘密鍵（金色の鍵）。象徴であり、実際の鍵データではない。
 function makePrivateKey() {
-  const m = mats();
+  // 鍵ごとに発光の強さを変えるので、材質は鍵ごとに複製する（他の鍵に波及させない）
+  const gold = mats().gold.clone();
   const g = new THREE.Group();
-  const bow = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.035, 16, 40), m.gold);
+  const bow = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.035, 16, 40), gold);
   bow.position.x = -0.22;
-  const shaft = cyl(0.025, 0.025, 0.42, m.gold, 16); shaft.rotation.z = Math.PI / 2; shaft.position.x = 0.07;
-  const t1 = box(0.035, 0.09, 0.03, m.gold); t1.position.set(0.2, -0.05, 0);
-  const t2 = box(0.035, 0.06, 0.03, m.gold); t2.position.set(0.26, -0.035, 0);
+  const shaft = cyl(0.025, 0.025, 0.42, gold, 16); shaft.rotation.z = Math.PI / 2; shaft.position.x = 0.07;
+  const t1 = box(0.035, 0.09, 0.03, gold); t1.position.set(0.2, -0.05, 0);
+  const t2 = box(0.035, 0.06, 0.03, gold); t2.position.set(0.26, -0.035, 0);
   g.add(bow, shaft, t1, t2);
   g.traverse((o) => { o.castShadow = true; });
+  g.userData.material = gold;
   return g;
 }
 
@@ -154,7 +177,7 @@ function makeCSRFolder() {
   const g = new THREE.Group();
   const back = rbox(0.42, 0.3, 0.02, m.ra, 0.008);
   const sheet = box(0.38, 0.27, 0.005, m.paper); sheet.position.z = 0.013;
-  const tex = cardFace('CSR 申込書', ['公開鍵: EC P-256', 'SAN: localhost', '     127.0.0.1', '自己署名: あり'], '#1f9e8f');
+  const tex = cardTexture({ title: 'CSR 申込書', rows: ['公開鍵: EC P-256', 'SAN: DNS:localhost', '     IP:127.0.0.1', '自己署名: あり'] }, '#1f9e8f');
   const face = new THREE.Mesh(new THREE.PlaneGeometry(0.37, 0.23), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9 }));
   face.position.z = 0.0165;
   const cover = new THREE.Group();
@@ -166,42 +189,41 @@ function makeCSRFolder() {
   return g;
 }
 
-// A27〜A29 証明書カード
+// A27〜A29 証明書カード（setContent で表示項目を書き換える）
 function makeCertCard(kind) {
   const m = mats();
   const spec = {
-    leaf: { mat: m.server, accent: '#2f6fdb', title: 'サーバー証明書',
-      rows: ['Subject: CN=localhost', 'SAN: DNS:localhost', '     IP:127.0.0.1', 'CA:FALSE / serverAuth'] },
-    inter: { mat: m.inter, accent: '#e08a1e', title: '中間CA証明書',
-      rows: ['Issuer: Root CA', 'CA:TRUE pathlen:0', 'NameConstraints:', ' localhost,127.0.0.1'] },
-    root: { mat: m.root, accent: '#b3263a', title: 'ルートCA証明書',
-      rows: ['自己署名', 'CA:TRUE pathlen:1', 'keyCertSign,cRLSign', '信頼の起点'] },
+    leaf: { mat: m.server, accent: '#2f6fdb', content: CARDS.LEAF },
+    inter: { mat: m.inter, accent: '#e08a1e', content: CARDS.INTER },
+    root: { mat: m.root, accent: '#b3263a', content: CARDS.ROOT },
   }[kind];
   const g = new THREE.Group();
   const body = rbox(0.5, 0.32, 0.025, spec.mat, 0.02);
+  const tex = cardTexture(spec.content, spec.accent);
   const face = new THREE.Mesh(new THREE.PlaneGeometry(0.47, 0.295),
-    new THREE.MeshStandardMaterial({ map: cardFace(spec.title, spec.rows, spec.accent), roughness: 0.8,
-      emissive: 0xffffff, emissiveIntensity: 0.0 }));
+    new THREE.MeshStandardMaterial({ map: tex, roughness: 0.8, emissive: 0xffffff, emissiveIntensity: 0.0 }));
   face.position.z = 0.0135;
   const back = face.clone(); back.rotation.y = Math.PI; back.position.z = -0.0135;
   g.add(body, face, back);
   g.userData.face = face;
   g.userData.body = body;
+  g.userData.setContent = (content) => tex.userData.draw(content);
+  g.userData.content = () => tex.userData.content;
   return g;
 }
 
-// A30 CRL 一覧ボード
-function makeCRLBoard(version = 1) {
+// A30 CRL 一覧ボード（setContent で発行者・失効項目・時刻を書き換える）
+function makeCRLBoard(content) {
   const m = mats();
   const g = new THREE.Group();
   const frame = rbox(0.5, 0.36, 0.03, m.crl, 0.015);
-  const rows = version === 1
-    ? ['CRL #1000 中間CA', '失効: 0 件', 'nextUpdate: 24h後', '署名: 中間CA']
-    : ['CRL #1001 中間CA', '失効: 1 件', '＋ サーバー証明書', '  理由: keyCompromise'];
+  const tex = cardTexture(content, '#7d4bd1');
   const face = new THREE.Mesh(new THREE.PlaneGeometry(0.46, 0.32),
-    new THREE.MeshStandardMaterial({ map: cardFace('CRL 失効リスト', rows, '#7d4bd1'), roughness: 0.85 }));
+    new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85 }));
   face.position.z = 0.016;
   g.add(frame, face);
+  g.userData.setContent = (c) => tex.userData.draw(c);
+  g.userData.content = () => tex.userData.content;
   return g;
 }
 
@@ -421,10 +443,11 @@ function makeTrustStore() {
   const tray = box(0.86, 0.04, 0.6, m.darkSteel); tray.position.set(0, 0.42, 0.06);
   drawer.add(front, handle, tray);
   const lower = rbox(0.9, 0.3, 0.05, m.wallDark, 0.02); lower.position.set(0, 0.2, 0.36);
-  const label = makeLabel('信頼ストア\n（利用者が選んだルート）', { size: 0.12, accent: '#3aa35b' });
+  const label = makeLabel('信頼ストア\nPKI Lab Root CA', { size: 0.12, accent: '#3aa35b' });
   label.position.set(0, 1.3, 0);
   g.add(body, top, drawer, lower, label);
   g.userData.drawer = drawer;
+  g.userData.label = label;
   return g;
 }
 
@@ -464,8 +487,8 @@ function makeCRLCabinet() {
     const h = rbox(0.25, 0.03, 0.04, m.steel, 0.01); h.position.set(0, 0.25 + i * 0.38, 0.45);
     g.add(d, h);
   }
-  const board = makeCRLBoard(1); board.position.set(0, 2.0, 0); board.scale.setScalar(1.6);
-  const boardNew = makeCRLBoard(2); boardNew.position.set(0, 2.0, 0.01); boardNew.scale.setScalar(1.6); boardNew.visible = false;
+  const board = makeCRLBoard(CARDS.CRL_OK); board.position.set(0, 2.0, 0); board.scale.setScalar(1.6);
+  const boardNew = makeCRLBoard(CARDS.CRL_LEAF); boardNew.position.set(0, 2.0, 0.01); boardNew.scale.setScalar(1.6); boardNew.visible = false;
   const light = new THREE.PointLight(0xb08cff, 0, 3); light.position.set(0, 2.0, 1.0);
   g.add(body, top, board, boardNew, light);
   g.userData = { board, boardNew, light };
@@ -651,6 +674,9 @@ export function buildWorld(scene) {
   const clientDesk = rbox(1.4, 0.75, 0.7, m.wallDark, 0.05); clientDesk.position.set(STATIONS.client[0], 0.375, STATIONS.client[2] + 0.2);
   const clientMon = makeMonitor(m.client); clientMon.position.set(STATIONS.client[0], 0.76, STATIONS.client[2] + 0.1);
   scene.add(clientDesk, clientMon);
+  const targetLabel = makeLabel('接続先: https://localhost:8443/', { size: 0.13, accent: '#3aa35b' });
+  targetLabel.position.set(STATIONS.client[0], 1.95, STATIONS.client[2] + 0.2);
+  scene.add(targetLabel);
 
   // 区画名
   const zoneLabels = [
@@ -691,8 +717,8 @@ export function buildWorld(scene) {
     approval: makeApprovalBadge(),
     leaf: makeCertCard('leaf'),
     chainCopy: makeCertCard('inter'),
-    crlFetch: makeCRLBoard(1),
-    crlNew: makeCRLBoard(2),
+    crlFetch: makeCRLBoard(CARDS.CRL_OK),
+    crlNew: makeCRLBoard(CARDS.CRL_LEAF),
   };
   for (const t of Object.values(tokens)) { t.visible = false; t.scale.setScalar(1.6); scene.add(t); }
   // チェーン接続環（葉と中間をつなぐ）
@@ -724,6 +750,22 @@ export function buildWorld(scene) {
 
   return {
     tokens, link, gates, clock, tls, keys, robots, fadeLabels,
+    // 条件ごとの表示内容（lesson.js の scenarioView）をカード・CRL・信頼ストア・接続先に反映する
+    setScenarioView(view) {
+      tokens.leaf.userData.setContent(view.leaf);
+      tokens.chainCopy.userData.setContent(view.inter);
+      tokens.intCert.userData.setContent(view.inter);
+      tokens.rootCertCopy.userData.setContent(view.root);
+      tokens.crlFetch.userData.setContent(view.crlFetch);
+      if (view.crlNew) tokens.crlNew.userData.setContent(view.crlNew);
+      setLabelText(trust.userData.label, view.trust);
+      setLabelText(targetLabel, `接続先: https://${view.target}:8443/`);
+    },
+    describe() {
+      return { leaf: tokens.leaf.userData.content(), chain: tokens.chainCopy.userData.content(),
+        crlFetch: tokens.crlFetch.userData.content(), crlNew: tokens.crlNew.userData.content(),
+        trust: trust.userData.label.userData.text, target: targetLabel.userData.text };
+    },
     parts: { vault, signing, audit, crlCab, ra, trust },
     focus: Object.fromEntries(Object.keys(STATIONS).map((k) => [k, S(k)])),
   };

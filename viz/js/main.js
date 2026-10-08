@@ -2,7 +2,9 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { DURATION, SCENES, SCENARIOS, STATIONS, lessonState, parseEvents, sceneIndexAt } from './lesson.js';
+import {
+  DURATION, SCENES, SCENARIOS, STATIONS, lessonState, parseEvents, sceneIndexAt, scenarioView, captionFor, MAX_EVENTS_BYTES,
+} from './lesson.js';
 import { buildWorld, CATALOG } from './world.js';
 
 const params = new URLSearchParams(location.search);
@@ -104,8 +106,10 @@ for (const [k, sc] of Object.entries(SCENARIOS)) {
   $('scenario').append(o);
 }
 $('scenario').value = ui.scenario;
+world.setScenarioView(scenarioView(ui.scenario));
 $('scenario').addEventListener('change', (e) => {
   ui.scenario = e.target.value;
+  world.setScenarioView(scenarioView(ui.scenario));
   // 比較条件は、証明書が提示される場面（検証ゲートの手前）から再生する
   ui.t = ui.scenario === 'lesson' ? 0 : 90;
   ui.playing = true;
@@ -157,25 +161,34 @@ window.addEventListener('keydown', (e) => {
 });
 
 // 実測イベントの読込（pkilab export-events の出力）
-async function loadEventsDoc(doc, source) {
+function loadEventsDoc(text, source) {
   try {
-    ui.events = parseEvents(doc);
+    ui.events = parseEvents(JSON.parse(text), text.length);
   } catch (err) {
     $('eventsStatus').textContent = `読み込めません: ${err.message}`;
     return;
   }
-  $('eventsStatus').textContent = `${source}: ${ui.events.length} 件（実測）`;
+  const measured = ui.events.filter((e) => e.measured).length;
+  // 実測の申告を区別して表示する。ファイルの真正性（本当にラボで生成されたか）はこの画面では確認していない。
+  $('eventsStatus').textContent = measured === ui.events.length && measured > 0
+    ? `${source}: ${ui.events.length} 件 — 実測として提供された記録（真正性はこの画面では未検証）`
+    : `${source}: ${ui.events.length} 件 — うち実測 ${measured} 件（measured が true でない記録は実測扱いしません）`;
   const list = $('events'); list.replaceChildren();
   const measuredScenes = new Set();
   for (const e of ui.events) {
     const li = document.createElement('li');
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = /REJECT|REVOKED/.test(e.type) ? 'bad' : '';
-    btn.textContent = `#${e.seq} ${e.type}${e.details?.code ? ' · ' + e.details.code : ''}`;
+    btn.className = /REJECT|REVOKED|FAILED|QUARANTINED/.test(e.type) || ['reject', 'indeterminate'].includes(e.result) ? 'bad' : '';
+    const notes = [];
+    if (e.details?.code) notes.push(e.details.code);
+    if (e.revocationSkipped) notes.push('失効確認なし');
+    if (e.aggregate) notes.push('処理全体の結果');
+    if (!e.measured) notes.push('実測ではない');
+    btn.textContent = `#${e.seq} ${e.type}${notes.length ? ' · ' + notes.join(' · ') : ''}`;
     btn.title = `${e.ts} / role=${e.role}`;
     if (e.scene !== null) {
-      measuredScenes.add(e.scene);
+      if (e.measured) measuredScenes.add(e.scene);
       btn.addEventListener('click', () => { ui.t = SCENES[e.scene].t + 0.01; ui.lastScene = -1; ui.playing = false; });
     }
     li.append(btn);
@@ -186,12 +199,13 @@ async function loadEventsDoc(doc, source) {
 $('eventsFile').addEventListener('change', async (e) => {
   const f = e.target.files[0];
   if (!f) return;
-  try { await loadEventsDoc(JSON.parse(await f.text()), f.name); } catch (err) { $('eventsStatus').textContent = `読み込めません: ${err.message}`; }
+  if (f.size > MAX_EVENTS_BYTES) { $('eventsStatus').textContent = '読み込めません: ファイルが大きすぎます'; return; }
+  loadEventsDoc(await f.text(), f.name);
 });
 $('eventsSample').addEventListener('click', async () => {
   try {
     const r = await fetch('data/sample-events.json');
-    await loadEventsDoc(await r.json(), 'サンプル（ラボの実行結果）');
+    loadEventsDoc(await r.text(), 'サンプル（ラボの実行結果）');
   } catch (err) { $('eventsStatus').textContent = `読み込めません: ${err.message}`; }
 });
 
@@ -228,6 +242,9 @@ function apply(st, time) {
   world.tokens.leaf.userData.face.material.emissiveIntensity = blameLeaf ? 0.45 + 0.2 * Math.sin(time * 6) : 0;
   world.tokens.chainCopy.userData.face.material.emissive.setHex(blameInt ? 0xff2030 : 0x000000);
   world.tokens.chainCopy.userData.face.material.emissiveIntensity = blameInt ? 0.45 + 0.2 * Math.sin(time * 6) : 0;
+  // 明るい面では発光だけだと見分けにくいので、面の色も赤く染める
+  world.tokens.leaf.userData.face.material.color.setHex(blameLeaf ? 0xff8a95 : 0xffffff);
+  world.tokens.chainCopy.userData.face.material.color.setHex(blameInt ? 0xff8a95 : 0xffffff);
 
   // ゲート
   st.gates.forEach((g, i) => {
@@ -259,7 +276,7 @@ function apply(st, time) {
   world.parts.crlCab.userData.board.visible = !world.parts.crlCab.userData.boardNew.visible;
   const lamp = world.parts.ra.userData.lamp.material;
   lamp.emissive.setHex(p.raCheck > 0 ? 0x1fe0c4 : 0x000000); lamp.emissiveIntensity = p.raCheck * 2.5;
-  world.keys.server.children.forEach((c) => { if (c.material?.emissiveIntensity !== undefined) c.material.emissiveIntensity = 0.4 + p.serverKeyGlow * 1.5; });
+  world.keys.server.userData.material.emissiveIntensity = 0.4 + p.serverKeyGlow * 1.5;
   world.tls.visible = p.tlsSpark > 0.01;
   world.tls.scale.setScalar(0.6 + 0.4 * p.tlsSpark);
   // 期限切れシナリオでは時計の針が大きく進む
@@ -290,19 +307,7 @@ function updateUI(st) {
   if (st.sceneIndex !== ui.lastScene) {
     ui.lastScene = st.sceneIndex;
     $('sceneNo').textContent = `場面 ${st.sceneIndex + 1} / ${SCENES.length}`;
-    let short = s.short, detail = s.detail;
-    const sc = st.scenario;
-    if (s.gate !== undefined && sc.failAt !== null) {
-      if (s.gate === sc.failAt) { short = `この条件では、ここで止まります（${sc.outcome}）。`; detail = sc.summary; }
-      if (s.gate > sc.failAt) { short = '前の確認で拒否されたため、この確認は行いません。'; detail = sc.summary; }
-    }
-    let title = s.title;
-    if (!sc.revokeAtEnd && st.sceneIndex >= 16) {
-      // 比較条件では失効の場面は再生せず、結果のふりかえりにする
-      title = `ふりかえり：${sc.label}`;
-      short = sc.failAt === null ? '失効はこの条件では起きません。接続は成立したままです。' : sc.summary;
-      detail = '左上の結果コードは、lab の pkilab.py verify / client が返すコードと同じです。';
-    }
+    const { title, short, detail } = captionFor(st.sceneIndex, ui.scenario);
     $('sceneTitle').textContent = title;
     $('sceneShort').textContent = short;
     $('detail').textContent = detail;
@@ -366,6 +371,6 @@ if (params.has('capture')) {
   camera.position.set(c.target[0] + c.offset[0], c.target[1] + c.offset[1], c.target[2] + c.offset[2]);
   ui.autoCam = false;
 }
-window.__atelier = { ui, lessonState, world, renderer, scene };
+window.__atelier = { ui, lessonState, world, renderer, scene, describe: () => world.describe(), loadEventsDoc };
 requestAnimationFrame(frame);
 document.body.classList.add('ready');

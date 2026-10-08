@@ -472,7 +472,7 @@ openssl verify \
 
 - `-trusted` には**信頼するルート**、`-untrusted` には**経路を組み立てるための中間CA**を渡します。中間CAを信頼の起点にはしません。
 - 終了コードだけでなく、**想定した理由で拒否されたか**まで確認します。
-- `openssl verify -verify_hostname` は SAN がないとき CN を見に行くことがあるため、**SAN の有無は事前に別途チェック**します。
+- `openssl verify -verify_hostname` は、**接続先と同じ種類の SAN が無いと CN を見に行きます**。「SAN が何か入っている」だけでは防げません（たとえば CN=localhost・SAN が IP:127.0.0.1 だけの証明書は、localhost として通ってしまいます）。そこで、DNS 名で接続するなら DNS 型、IP なら IP 型の SAN が**完全一致**で含まれることを事前に確認します。
 
 ### 5-9. 実際のTLS接続での検証
 
@@ -536,7 +536,7 @@ curl --noproxy '*' \
 
 - リポジトリ：`https://github.com/kurumonn/CA`
 - 実装：`lab/pkilab.py`（審査・承認・排他・失効・検証・監査・復旧を担当し、証明書処理は OpenSSL に任せます）
-- 自動テスト：37件（正常系・異常系・クラッシュ復旧・監査改ざん検出・実TLS接続を含む）
+- 自動テスト：53件（正常系・異常系・各段階でのクラッシュ復旧・監査改ざん後の凍結・同時書き込み・バックアップの巻き戻り検出・実TLS接続を含む）
 
 ### 一括デモ
 
@@ -553,7 +553,7 @@ bash lab/scripts/demo.sh
 | 4 | 中間CAが発行（発行後検査・台帳・監査まで） |
 | 5 | `verify` で `OK`、`--host example.com` なら `SAN_MISMATCH` |
 | 6 | HTTPSサーバーに TLS 1.3 で接続成功 |
-| 7〜8 | 失効後、厳格クライアントは `LEAF_REVOKED` で拒否。**失効確認なしのクライアントと curl の既定動作は接続できてしまう** |
+| 7〜8 | 失効後、厳格クライアントは `REVOKED` で拒否。**失効確認なしのクライアントと curl の既定動作は接続できてしまう** |
 | 9 | 監査ログのハッシュ連鎖と、台帳・CRLの照合がOK |
 | 10 | 3Dアニメ用のイベントJSONを出力（秘密情報なし） |
 
@@ -571,7 +571,7 @@ python3 pkilab.py verify --request REQ-xxxxxxxx-xxxxxxxx
 python3 pkilab.py serve-https REQ-xxxxxxxx-xxxxxxxx   # 別ターミナルで
 python3 pkilab.py client                    # 厳格なTLSクライアントで接続
 python3 pkilab.py revoke  REQ-xxxxxxxx-xxxxxxxx --reason keyCompromise
-python3 pkilab.py client                    # → LEAF_REVOKED
+python3 pkilab.py client                    # → REVOKED
 python3 pkilab.py client --no-crl           # → 接続できてしまう（比較用）
 python3 pkilab.py check                     # 台帳・CRL・監査の照合
 ```
@@ -585,7 +585,8 @@ python3 pkilab.py check                     # 台帳・CRL・監査の照合
 | `SAN_MISMATCH` | 接続先名が SAN に含まれない |
 | `CERT_EXPIRED` | 有効期限切れ |
 | `WRONG_EKU` | 用途が違う |
-| `LEAF_REVOKED` / `INTERMEDIATE_REVOKED` | 葉／中間CAが失効 |
+| `LEAF_REVOKED` / `INTERMEDIATE_REVOKED` | 葉／中間CAが失効（証明書ファイルの検証） |
+| `REVOKED` | 実際の TLS 接続で失効を検出（葉か中間かは同じ接続では確定できないので、推定は参考情報として別に出します） |
 | `NAME_CONSTRAINT_VIOLATION` | 中間CAの名前制約の外 |
 | `CRL_MISSING` / `CRL_EXPIRED` | 失効状態を**確認できない**（判定不能 → 接続しない） |
 

@@ -56,10 +56,10 @@
 | FR-08 | 葉の失効 | 中間CA CRL で拒否される | `revoke` |
 | FR-09 | 中間CAの失効 | ルート CRL で配下が拒否される | `revoke-intermediate` |
 | FR-10 | CRL 運用 | 生成・配布・鮮度確認 | `crl-root` / `crl-issuer` / `serve-public` |
-| FR-11 | 更新・世代交代 | 親の残存期間不足を検出して停止 | `ISSUER_RENEWAL_REQUIRED` |
-| FR-12 | 監査・復旧 | ハッシュ連鎖・照合・隔離環境への復元 | `audit-verify` / `check` / `backup` / `restore` |
-| FR-13 | 排他・再実行制御 | 同時更新と二重発行を防ぐ | `ca_lock()`、冪等な `issue`、`recover` |
-| FR-14 | 教材用出力 | 秘密情報を出さずに処理結果を可視化 | `export-events` → `viz/` |
+| FR-11 | 更新・世代交代 | 親の残存期間不足を検出して停止。失効した中間CAは発行を止め、新しい鍵の世代へ移る | `ISSUER_RENEWAL_REQUIRED`、CA 状態、`init-issuer --new-generation` |
+| FR-12 | 監査・復旧 | 監査異常で凍結し正常化しない、内容まで照合、改ざん検出付きバックアップ、新しさ・鍵の準備を分けて判定し保留から再開 | `audit-verify` / `audit-reanchor` / `check` / `backup` / `restore` / `resume` |
+| FR-13 | 排他・再実行制御 | 同時更新・二重発行・監査ログの競合を防ぎ、署名済み証明書を一意に追跡して復旧する | CA・監査ロック、冪等な `issue`、`recover` |
+| FR-14 | 教材用出力 | 秘密情報を出さず、観測した粒度のまま（未実施の段階を実測として出さない）処理結果を可視化 | `export-events` → `viz/` |
 
 ## 5. 非機能要件（ラボ向けの選定値）
 

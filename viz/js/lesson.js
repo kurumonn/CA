@@ -94,7 +94,7 @@ export const SCENES = [
     short: '公開鍵と希望する名前を書き、秘密鍵で申込書に署名します。',
     detail: 'CSR の署名で分かるのは「この公開鍵の秘密鍵を持っている」ことだけ。その名前を使う権利があるかは、次の窓口で別に確認します。' },
   { t: 50, cam: 'ra', title: '申請窓口（RA）へ提出',
-    short: 'CSR は公開情報なので、運んでも秘密は漏れません。',
+    short: 'CSR に秘密鍵は入っていません。名前などの申請情報は含むので、用途に応じて扱います。',
     detail: '受付ではサイズ、形式、CSR 署名、鍵の種類（EC P-256）、要求された名前と用途を検査します。' },
   { t: 60, cam: 'ra', title: 'RA が審査・承認する',
     short: '許可された名前だけ。CA 権限の要求は拒否します。',
@@ -103,7 +103,7 @@ export const SCENES = [
     short: '押印は電子署名のたとえ。証明書を「暗号化」するわけではありません。',
     detail: '発行する拡張は CSR からコピーせず（copy_extensions = none）、CA 側の固定プロファイルから作ります。CA:FALSE / serverAuth / SAN。' },
   { t: 80, cam: 'intermediate', title: '発行後検査・台帳・配置',
-    short: '検査に通った証明書だけを台帳に記録し、サーバーへ渡します。',
+    short: '署名と同時に台帳に記録され、発行後検査に不合格なら失効・隔離。合格したものだけを配置します。',
     detail: '構造、鍵の一致、用途、期間、チェーンを検査。監査ログはハッシュ連鎖で記録し、最新ハッシュは別媒体にも保存します。' },
   { t: 90, cam: 'client', title: 'TLS 接続で証明書を提示',
     short: 'サーバーは「葉＋中間CA」を送ります。ルートは送りません。',
@@ -169,6 +169,7 @@ export function sample(track, t) {
 // ---- シナリオごとのトークン軌跡 --------------------------------------------
 export function buildTracks(scenarioKey) {
   const sc = SCENARIOS[scenarioKey] ?? SCENARIOS.lesson;
+  const view = scenarioView(scenarioKey);
   const kf = (t, at, extra = {}) => ({ t, at, ...extra });
   const tracks = {};
 
@@ -179,7 +180,7 @@ export function buildTracks(scenarioKey) {
     kf(18, pos('intermediate', [-0.9, 0.9, 0.4]), { move: true, arc: 1.6 }),
   ];
   // ルート証明書（公開情報）：別経路で信頼ストアへ
-  tracks.rootCertCopy = [
+  if (view.rootDelivered) tracks.rootCertCopy = [
     kf(20, pos('rootVault', [0.4, 0.6, 0.8])),
     kf(21, pos('rootVault', [0.4, 0.6, 0.8])),
     kf(28, pos('trust', [0, 0.75, 0]), { move: true, arc: 3.2 }),
@@ -334,23 +335,103 @@ function win(t, a, b, c, d) {
 }
 
 // ---- ラボの実測イベント（pkilab export-events）との対応 ---------------------
+// ---- 条件ごとの表示内容（カード・CRL・信頼ストア・接続先）---------------------
+// 3D のカード表示と説明文は、すべてここから作る（固定値を別々に持たない）。
+const LEAF = { title: 'サーバー証明書', rows: ['Subject: CN=localhost', 'SAN: DNS:localhost', '     IP:127.0.0.1',
+  'CA:FALSE / EKU: serverAuth', 'notAfter: 基準時刻+29日'] };
+const INTER = { title: '中間CA証明書', rows: ['Issuer: PKI Lab Root CA', 'CA:TRUE pathlen:0', 'NameConstraints:',
+  ' localhost,127.0.0.1'] };
+const ROOT = { title: 'ルートCA証明書', rows: ['自己署名', 'CA:TRUE pathlen:1', 'keyCertSign,cRLSign', '信頼の起点'] };
+const CRL_OK = { title: 'CRL（中間CAが署名）', rows: ['発行者: Issuing CA 1', 'CRL #1000 / 失効 0件',
+  'nextUpdate: 基準時刻+20h', '＋ルートCRL: 失効 0件'] };
+const CRL_LEAF = { title: 'CRL（中間CAが署名）', rows: ['発行者: Issuing CA 1', 'CRL #1001 / 失効 1件',
+  '・サーバー証明書（葉）', '  理由: keyCompromise', 'nextUpdate: 基準時刻+20h'] };
+const CRL_ROOT_INT = { title: 'CRL（ルートCAが署名）', rows: ['発行者: PKI Lab Root CA', 'CRL #1001 / 失効 1件',
+  '・中間CA証明書', '  理由: CACompromise', 'nextUpdate: 基準時刻+29日'] };
+const CRL_STALE = { title: 'CRL（中間CAが署名）', rows: ['発行者: Issuing CA 1', 'CRL #1000 / 失効 0件',
+  'nextUpdate: 基準時刻の2日前', '→ 期限切れ：確認できない'] };
+const rowsWith = (card, i, row) => ({ ...card, rows: card.rows.map((r, j) => (j === i ? row : r)) });
+
+export const CARDS = { LEAF, INTER, ROOT, CRL_OK, CRL_LEAF };
+
+export function scenarioView(key) {
+  const v = { leaf: LEAF, inter: INTER, root: ROOT, crlFetch: CRL_OK, crlNew: null,
+    trust: '信頼ストア\nPKI Lab Root CA', target: 'localhost', rootDelivered: true };
+  switch (key) {
+    case 'lesson': return { ...v, crlNew: CRL_LEAF };
+    case 'untrusted': return { ...v, rootDelivered: false, trust: '信頼ストア\nOther Root のみ\n（PKI Lab Root CA なし）' };
+    case 'sanMismatch': return { ...v, target: 'example.com' };
+    case 'expired': return { ...v, leaf: rowsWith(LEAF, 4, 'notAfter: 基準時刻の15日前') };
+    case 'wrongEku': return { ...v, leaf: rowsWith(LEAF, 3, 'CA:FALSE / EKU: clientAuth のみ') };
+    case 'leafRevoked': return { ...v, crlFetch: CRL_LEAF };
+    case 'intermediateRevoked': return { ...v, crlFetch: CRL_ROOT_INT };
+    case 'crlExpired': return { ...v, crlFetch: CRL_STALE };
+    default: return v;
+  }
+}
+
+// 場面の説明文（条件によって変わる部分を含む）
+export function captionFor(sceneIndex, scenarioKey) {
+  const s = SCENES[sceneIndex];
+  const sc = SCENARIOS[scenarioKey] ?? SCENARIOS.lesson;
+  const view = scenarioView(scenarioKey);
+  let { title, short, detail } = s;
+  if (sceneIndex === 2 && !view.rootDelivered) {
+    short = 'この条件では、利用者は PKI Lab のルートを信頼ストアに入れていません。';
+    detail = '信頼ストアにあるのは別のルート（Other Root）だけです。証明書の署名が正しくても、信頼の起点までたどれません。';
+  }
+  if (sceneIndex === 9 && view.target !== 'localhost') {
+    short = `利用者は ${view.target} に接続しようとしています。サーバーは localhost 用の証明書を提示します。`;
+  }
+  if (s.gate !== undefined && sc.failAt !== null) {
+    if (s.gate === sc.failAt) { short = `この条件では、ここで止まります（${sc.outcome}）。`; detail = sc.summary; }
+    if (s.gate > sc.failAt) { short = '前の確認で拒否されたため、この確認は行いません。'; detail = sc.summary; }
+  }
+  if (!sc.revokeAtEnd && sceneIndex >= 16) {
+    title = `ふりかえり：${sc.label}`;
+    short = sc.failAt === null ? '失効はこの条件では起きません。接続は成立したままです。' : sc.summary;
+    detail = '左上の結果コードは、lab の pkilab.py verify / client が返すコードと同じです。';
+  }
+  return { title, short, detail };
+}
+
+// ---- ラボの実測イベント（pkilab export-events, schema 2）との対応 ---------------
 export const EVENT_TO_SCENE = {
   ROOT_CREATED: 0, INTERMEDIATE_DELEGATED: 1, CSR_CREATED: 4, CSR_SIGNATURE_CHECKED: 5,
-  REQUEST_AUTHORIZED: 6, REQUEST_REJECTED: 6, CERT_ISSUED: 7, CERT_DEPLOYED: 8,
-  TRUST_ANCHOR_SELECTED: 10, PATH_VALIDATED: 10, SAN_CHECKED: 11, REVOCATION_CHECKED: 14,
-  VERIFY_ACCEPTED: 15, VERIFY_REJECTED: 17, TLS_HANDSHAKE_COMPLETED: 15, TLS_HANDSHAKE_REJECTED: 17,
+  REQUEST_AUTHORIZED: 6, REQUEST_REJECTED: 6, CERT_ISSUED: 7, CERT_DEPLOYED: 8, CERT_QUARANTINED: 8,
   CERT_REVOKED: 16, INTERMEDIATE_REVOKED: 16, CRL_PUBLISHED: 16,
 };
+// 検証・TLS は「処理全体の結果」しか記録していないので、結果コードに対応する確認の場面へ結び付ける
+const CODE_TO_SCENE = {
+  OK: 10, UNTRUSTED_ANCHOR: 10, SAN_REQUIRED: 11, SAN_MISMATCH: 11, CERT_EXPIRED: 12, NOT_YET_VALID: 12,
+  WRONG_EKU: 13, LEAF_REVOKED: 14, INTERMEDIATE_REVOKED: 14, REVOKED: 14, CRL_MISSING: 14, CRL_EXPIRED: 14,
+  NAME_CONSTRAINT_VIOLATION: 10,
+};
+export const MAX_EVENTS = 10000;
+export const MAX_EVENTS_BYTES = 2 * 1024 * 1024;
 
-export function parseEvents(doc) {
-  if (!doc || doc.schema !== 'pkilab-events/1' || !Array.isArray(doc.events)) {
-    throw new Error('pkilab-events/1 形式の JSON ではありません');
+export function eventScene(e) {
+  if (e.type === 'CERT_VERIFICATION_COMPLETED') return CODE_TO_SCENE[e.details?.code] ?? 10;
+  if (e.type === 'TLS_HANDSHAKE_COMPLETED') return 15;
+  if (e.type === 'TLS_HANDSHAKE_FAILED') return e.details?.code === 'REVOKED' ? 17 : (CODE_TO_SCENE[e.details?.code] ?? 15);
+  return EVENT_TO_SCENE[e.type] ?? null;
+}
+
+export function parseEvents(doc, byteLength = 0) {
+  if (byteLength > MAX_EVENTS_BYTES) throw new Error('ファイルが大きすぎます');
+  if (!doc || doc.schema !== 'pkilab-events/2' || !Array.isArray(doc.events)) {
+    throw new Error('pkilab-events/2 形式の JSON ではありません');
   }
+  if (doc.events.length > MAX_EVENTS) throw new Error('イベントが多すぎます');
   const text = JSON.stringify(doc);
-  if (/PRIVATE KEY|BEGIN /.test(text)) throw new Error('秘密情報らしき文字列を含むため読み込みません');
+  if (/PRIVATE KEY|-----BEGIN/.test(text)) throw new Error('秘密情報らしき文字列を含むため読み込みません');
+  // 「実測」は、文書が measured === true（真偽値）で、各イベントの origin が measured のときだけ
+  const docMeasured = doc.measured === true;
   return doc.events.map((e) => ({
     ...e,
-    scene: EVENT_TO_SCENE[e.type] ?? null,
-    measured: doc.measured === true,
+    scene: eventScene(e),
+    measured: docMeasured && e.origin === 'measured',
+    aggregate: e.observation === 'aggregate',
+    revocationSkipped: e.details?.revocation === 'skipped',
   }));
 }
