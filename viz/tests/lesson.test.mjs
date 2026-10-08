@@ -123,12 +123,20 @@ test('F08: measured が true（真偽値）でない記録は実測扱いしな�
 test('F07: 集約された検証イベントは、結果コードの確認場面に対応し、失効確認なしを保持する', () => {
   const doc = { schema: 'pkilab-events/2', measured: true, events: [
     { seq: 1, type: 'CERT_VERIFICATION_COMPLETED', origin: 'measured', observation: 'aggregate',
-      result: 'accept', details: { code: 'OK', revocation: 'skipped', stages: 'not_observed' } },
+      result: 'accept', details: { code: 'OK', revocation_requested: false, revocation_observation: 'not_requested', stages: 'not_observed' } },
     { seq: 2, type: 'CERT_VERIFICATION_COMPLETED', origin: 'measured', observation: 'aggregate',
-      result: 'reject', details: { code: 'SAN_MISMATCH', revocation: 'checked' } },
+      result: 'reject', details: { code: 'SAN_MISMATCH', revocation_requested: true, revocation_observation: 'not_executed', stopped_at: 'san_check' } },
   ] };
   const [a, b] = parseEvents(doc);
-  assert.equal(a.revocationSkipped, true);
+  assert.equal(a.revocationRequested, false);
+  assert.equal(a.revocationObservation, 'not_requested');
+  // NR05: 要求していても、名前の確認で止まれば「実行されていない」
+  assert.equal(b.revocationRequested, true);
+  assert.equal(b.revocationObservation, 'not_executed');
+  // 不明な値は表示に使わない
+  const [c] = parseEvents({ schema: 'pkilab-events/2', measured: true, events: [
+    { seq: 3, type: 'CERT_VERIFICATION_COMPLETED', origin: 'measured', details: { revocation_observation: 'checked' } }] });
+  assert.equal(c.revocationObservation, null);
   assert.equal(a.aggregate, true);
   assert.equal(b.scene, 11);
   assert.equal(eventScene({ type: 'TLS_HANDSHAKE_FAILED', details: { code: 'REVOKED' } }), 17);

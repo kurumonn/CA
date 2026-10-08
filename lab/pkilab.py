@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import contextlib
 import datetime as dt
 import errno
@@ -28,6 +29,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import socket
 import ssl
 import subprocess
@@ -88,7 +90,7 @@ CA_STATES = {"PENDING", "ACTIVE", "SUSPENDED", "REVOKED", "RETIRED"}
 
 # 監査ログが壊れていても実行できる操作（読み取り・管理された復旧のみ）
 NO_AUDIT_PRECHECK = {"audit-verify", "audit-reanchor", "check", "status", "restore", "serve-public"}
-# 復旧保留（restore 直後）の間は止める操作
+# 状態を変える操作。復旧保留中・置き換え済み（superseded）・世代交代の途中は止める
 HOLD_BLOCKED = {"init", "init-root", "init-issuer", "sign-intermediate", "request", "approve", "reject",
                 "issue", "recover", "revoke", "revoke-intermediate", "crl-root", "crl-issuer", "backup"}
 
@@ -108,6 +110,10 @@ class LabError(Exception):
 # =============================================================================
 
 def utcnow() -> dt.datetime:
+    # PKILAB_TEST_NOW は試験専用の時刻差し替え（OS の時計は変えない）。運用では設定しない。
+    fake = os.environ.get("PKILAB_TEST_NOW")
+    if fake:
+        return dt.datetime.strptime(fake, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
     return dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
 
 
@@ -172,6 +178,12 @@ def atomic_write(path: Path, data: bytes | str, mode: int = 0o644) -> None:
         with contextlib.suppress(FileNotFoundError):
             os.unlink(tmp)
         raise
+
+
+def _fault(name: str) -> None:
+    """I/O 障害の注入（試験用）。PKILAB_FAULT=<name> の箇所で容量不足の OSError を起こす。"""
+    if os.environ.get("PKILAB_FAULT") == name:
+        raise OSError(errno.ENOSPC, f"試験用の I/O 障害: {name}")
 
 
 def write_private(path: Path, data: bytes | str) -> None:
@@ -387,7 +399,7 @@ class Lab:
         dirs = [
             "root/private", "root/certs", "root/db", "root/newcerts", "root/crl",
             "issuer/private", "issuer/certs", "issuer/db", "issuer/newcerts", "issuer/crl",
-            "issuer/lock", "requests", "approvals", "journal", "audit", "anchor", "incidents",
+            "locks", "requests", "approvals", "journal", "audit", "anchor", "incidents",
             "server/private", "server/certs", "public/certs", "public/crl",
             "verifier/trust", "verifier/cache", "exports", "secrets", "backups", "archive",
         ]
@@ -434,13 +446,31 @@ class Lab:
                 fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
 
+    @contextlib.contextmanager
     def ca_lock(self, which: str = "issuer"):
-        # 取得順は常に issuer → root → audit（デッドロック防止）
-        path = self.p("issuer", "lock", "ca.lock") if which == "issuer" else self.p("root", "db", "ca.lock")
-        return self._flock(path, f"{which} CA")
+        # ロックは世代で入れ替わる issuer/ の外（locks/）に固定する。世代交代で issuer/ を
+        # 移動しても、同じ inode のロックで全区間を保護できる。取得順は issuer → root → audit。
+        with self._flock(self.p("locks", f"{which}.lock"), f"{which} CA"):
+            # 待っている間に、この CA が復元先に置き換えられていたら何もしない
+            if self.superseded():
+                raise LabError("SUPERSEDED", "この作業領域は復元先に置き換えられたため、状態を変更できません",
+                               superseded=read_json(self.superseded_marker))
+            yield
 
     def audit_lock(self):
-        return self._flock(self.p("audit", ".lock"), "監査ログ")
+        return self._flock(self.p("locks", "audit.lock"), "監査ログ")
+
+    # --- 置き換え済み・世代交代中 ------------------------------------------------
+    @property
+    def superseded_marker(self) -> Path:
+        return self.p("recovery", "superseded.json")
+
+    def superseded(self) -> bool:
+        return self.superseded_marker.exists()
+
+    @property
+    def rotation_marker(self) -> Path:
+        return self.p("rotation", "issuer.json")
 
     # --- 監査ログ（ハッシュ連鎖・凍結） ------------------------------------------
     @property
@@ -478,6 +508,8 @@ class Lab:
         with self.audit_lock():
             if self.is_frozen():
                 raise LabError("AUDIT_FROZEN", "監査ログは凍結中のため記録できません")
+            if self.superseded():
+                raise LabError("SUPERSEDED", "この作業領域は復元先に置き換えられたため、記録できません")
             # 末尾が基準ハッシュと一致していることを確認してから追記する
             tail = audit_tail(self.home)
             if not tail["ok"]:
@@ -699,6 +731,14 @@ def host_identity(host: str) -> str:
         return "DNS:" + host.lower().rstrip(".")
 
 
+def subject_cn(san: list[str]) -> str:
+    """Subject の CN。DNS 型の SAN があればそれを使う。IP だけの場合は、ホスト名に見えない CN にする
+    （DNS 型の SAN が無い証明書では、OpenSSL がホスト名らしい CN を名前制約の DNS 名として検査するため、
+    CN=127.0.0.1 だと中間CAの permitted;DNS:localhost に反して検証で拒否される）。"""
+    dns = [x.split(":", 1)[1] for x in san if x.startswith("DNS:")]
+    return dns[0] if dns else "PKI Lab TLS server"
+
+
 def profile_hash() -> str:
     return sha256_bytes(SERVER_PROFILE.read_bytes() + f"\ndays={LEAF_DAYS}".encode())
 
@@ -790,25 +830,49 @@ def cmd_init_root(lab: Lab, args) -> dict:
 
 def cmd_init_issuer(lab: Lab, args) -> dict:
     """中間CAの鍵と CSR を作る。署名はルート側（sign-intermediate）で行う。
-    --new-generation：失効・廃止した中間CAを archive/ へ移し、新しい鍵で次の世代を作る。"""
+    --new-generation：失効・廃止した中間CAを archive/ へ移し、新しい鍵で次の世代を作る。
+    世代交代は rotation/issuer.json に段階（archiving → archived）を記録し、途中で止まっても
+    同じコマンドで続きから再開する（旧世代を再び使ったり、二重に世代を作ったりしない）。"""
     lab.require("init-issuer")
-    lab.layout()
     with lab.ca_lock("issuer"):
-        st = lab.ca_state()
-        generation = st["generation"]
-        if lab.issuer_key.exists():
+        rot = read_json(lab.rotation_marker) if lab.rotation_marker.exists() else None
+        if rot is None:
+            st = lab.ca_state()
+            if lab.issuer_key.exists():
+                if not getattr(args, "new_generation", False):
+                    raise LabError("ALREADY_INITIALIZED", "中間CAの鍵は作成済みです")
+                if st["status"] not in ("REVOKED", "RETIRED"):
+                    raise LabError("CA_STILL_ACTIVE", "新しい世代へ移るには、現在の中間CAを失効または廃止してください")
+                if lab.p("archive", f"issuer-gen{st['generation']}").exists():
+                    raise LabError("ARCHIVE_EXISTS", f"archive/issuer-gen{st['generation']} が既にあります")
+                rot = {"from": st["generation"], "to": st["generation"] + 1, "stage": "archiving",
+                       "started": iso(utcnow()), "by": lab.actor}
+                write_json(lab.rotation_marker, rot)
+            generation = rot["to"] if rot else st["generation"]
+        else:
             if not getattr(args, "new_generation", False):
-                raise LabError("ALREADY_INITIALIZED", "中間CAの鍵は作成済みです")
-            if st["status"] not in ("REVOKED", "RETIRED"):
-                raise LabError("CA_STILL_ACTIVE", "新しい世代へ移るには、現在の中間CAを失効または廃止してください")
-            archive = lab.p("archive", f"issuer-gen{generation}")
-            if archive.exists():
-                raise LabError("ARCHIVE_EXISTS", f"{archive} が既にあります")
-            # 旧世代は秘密鍵ごと保管庫へ（署名には二度と使わない）
-            os.rename(lab.p("issuer"), archive)
-            fsync_dir(lab.p("archive"))
-            lab.layout()
-            generation += 1
+                raise LabError("ROTATION_IN_PROGRESS", "前回の世代交代が途中です。init-issuer --new-generation で再開してください",
+                               rotation=rot)
+            generation = rot["to"]
+        if rot:
+            archive = lab.p("archive", f"issuer-gen{rot['from']}")
+            if rot["stage"] == "archiving":
+                if not archive.exists():
+                    # 旧世代は秘密鍵ごと保管庫へ（署名には二度と使わない）
+                    archive.parent.mkdir(parents=True, exist_ok=True)
+                    os.rename(lab.p("issuer"), archive)
+                    fsync_dir(archive.parent)
+                    fsync_dir(lab.home)
+                rot["stage"] = "archived"
+                write_json(lab.rotation_marker, rot)
+                _crash_point("rotation-after-archive")
+            # archived 以降に issuer/ があれば、署名前の作りかけの新世代なので作り直す
+            partial = lab.p("issuer")
+            if partial.exists():
+                if (partial / "certs" / "intermediate.cert.pem").exists():
+                    raise LabError("ROTATION_CONFLICT", "作りかけのはずの新世代に署名済み証明書があります。手動で確認してください")
+                shutil.rmtree(partial)
+        lab.layout()
         ensure_passphrase(lab.issuer_pass)
         init_ca_db(lab.p("issuer"))
         gen_encrypted_key(lab, lab.issuer_key, lab.issuer_pass)
@@ -818,8 +882,11 @@ def cmd_init_issuer(lab: Lab, args) -> dict:
                     "-subj", f"/CN=PKI Lab Issuing CA {generation}", "-out", csr)
         write_json(lab.p("issuer", "state.json"), {"status": "PENDING", "generation": generation, "history": [
             {"status": "PENDING", "ts": iso(utcnow()), "by": lab.actor, "reason": "init-issuer"}]})
+        if rot:
+            lab.rotation_marker.unlink()
+            fsync_dir(lab.rotation_marker.parent)
         lab.audit("init-issuer", "ok", f"generation-{generation}", csr_sha256=sha256_file(csr),
-                  generation=generation)
+                  generation=generation, rotated_from=rot["from"] if rot else None)
     return {"csr": str(csr), "generation": generation}
 
 
@@ -829,6 +896,7 @@ def cmd_sign_intermediate(lab: Lab, args) -> dict:
     if not csr.exists():
         raise LabError("NO_CSR", "中間CAの CSR がありません（init-issuer を先に実行）")
     with lab.ca_lock("issuer"), lab.ca_lock("root"):
+        _finish_pending(lab, "root")  # ルートの未完了の失効を先に完了させる
         st = lab.ca_state()
         if st["status"] != "PENDING":
             raise LabError("ALREADY_SIGNED", f"中間CAは {st['status']} 状態です。署名し直しは"
@@ -976,25 +1044,67 @@ def _crash_point(name: str) -> None:
         raise LabError("SIMULATED_CRASH", f"試験用：{name} で停止しました")
 
 
+def issuer_usability_problems(lab: Lab, generation: int | None = None) -> list[str]:
+    """中間CA（指定世代）で今も発行・配置してよいかを確かめる。空なら使える。"""
+    st = lab.ca_state()
+    if generation is not None and generation != st["generation"]:
+        return [f"issuer_generation_{generation}_retired"]
+    problems = []
+    if st["status"] != "ACTIVE":
+        problems.append(f"issuer_ca_{st['status'].lower()}")
+    if pending_revocations(lab, "issuer"):
+        problems.append("issuer_revocation_pending")
+    if pending_revocations(lab, "root"):
+        problems.append("root_revocation_pending")
+    meta = crl_meta(lab, lab.p("public", "crl", "root.crl.pem"), lab.root_cert)
+    if not meta["present"] or not meta.get("sig_ok"):
+        problems.append("root_crl_unavailable")
+    elif parse_iso(meta["next_update"]) < utcnow():
+        problems.append("root_crl_expired")
+    elif lab.issuer_cert.exists() and cert_info(lab, lab.issuer_cert)["serial"] in meta["revoked"]:
+        problems.append("issuer_revoked_in_root_crl")
+    return problems
+
+
 def require_issuer_active(lab: Lab) -> dict:
-    """署名前に、中間CAの運用状態と、ルート CRL 上で失効していないことを確認する。"""
+    """署名前に、中間CAの運用状態・未完了の失効・ルート CRL 上の失効を確認する。"""
     st = lab.ca_state()
     if st["status"] != "ACTIVE":
         raise LabError("CA_NOT_ACTIVE", f"中間CAは {st['status']} 状態のため発行できません", ca_state=st["status"])
-    issuer = cert_info(lab, lab.issuer_cert)
-    meta = crl_meta(lab, lab.p("public", "crl", "root.crl.pem"), lab.root_cert)
-    if not meta["present"] or not meta.get("sig_ok"):
+    problems = issuer_usability_problems(lab)
+    if any(p.endswith("revocation_pending") for p in problems):
+        raise LabError("REVOCATION_PENDING", "公開が完了していない失効があるため発行できません", problems=problems)
+    if "root_crl_unavailable" in problems:
         raise LabError("ROOT_CRL_UNAVAILABLE", "ルート CRL が無いか署名を検証できないため、中間CAの状態を確認できません")
-    if parse_iso(meta["next_update"]) < utcnow():
+    if "root_crl_expired" in problems:
         raise LabError("ROOT_CRL_UNAVAILABLE", "ルート CRL の期限が切れています（crl-root で更新）")
-    if issuer["serial"] in meta["revoked"]:
+    if "issuer_revoked_in_root_crl" in problems:
         lab.set_ca_state("REVOKED", "found in root CRL")
         raise LabError("CA_NOT_ACTIVE", "中間CAはルート CRL で失効しています", ca_state="REVOKED")
-    return issuer
+    return cert_info(lab, lab.issuer_cert)
+
+
+def chain_problem(lab: Lab, pem: Path, base: Path) -> str | None:
+    """発行元の鍵による署名・経路・用途・有効期間・失効を OpenSSL で検証する（名前の一致だけで判断しない）。"""
+    with tempfile.NamedTemporaryFile("wb", prefix="crls-", suffix=".pem", dir=lab.p("journal"), delete=False) as f:
+        f.write(collect_crls(lab))
+        crls = Path(f.name)
+    try:
+        cp = lab.openssl("verify", "-x509_strict", "-purpose", "sslserver", "-trusted", lab.root_cert,
+                         "-untrusted", base / "certs" / "intermediate.cert.pem", "-CRLfile", crls,
+                         "-crl_check", "-crl_check_all", "-attime", str(int(utcnow().timestamp())), pem, check=False)
+    finally:
+        crls.unlink(missing_ok=True)
+    if cp.returncode == 0:
+        return None
+    m = re.search(r"error (\d+) at (\d+) depth", (cp.stdout + cp.stderr).decode(errors="replace"))
+    return classify_verify(int(m.group(1)), int(m.group(2))) if m else "VERIFY_ERROR"
 
 
 def validate_issued(lab: Lab, rec: dict, apr: dict) -> list[str]:
-    """署名済み証明書が、台帳・承認・プロファイルと一致するかを確認する。"""
+    """署名済み証明書を採用・配置してよいかを確かめる（空なら合格）。
+    1) 台帳・承認・プロファイルとの一致、2) 承認した期間・時刻との対応、
+    3) 現在の有効期間、4) 発行元CAの世代と運用状態、5) 署名経路と失効。"""
     base = lab.issuer_base(rec.get("generation"))
     pem = base / "newcerts" / f"{rec['serial']}.pem"
     if not pem.exists():
@@ -1024,49 +1134,123 @@ def validate_issued(lab: Lab, rec: dict, apr: dict) -> list[str]:
     if info["ku"] != ["digitalSignature"]:
         problems.append("keyUsage")
     issuer_cert = base / "certs" / "intermediate.cert.pem"
-    if issuer_cert.exists() and info["issuer"] != cert_info(lab, issuer_cert)["subject"]:
+    issuer_info = cert_info(lab, issuer_cert) if issuer_cert.exists() else None
+    if issuer_info and info["issuer"] != issuer_info["subject"]:
         problems.append("issuer")
+    if rec.get("approval_id") and rec["approval_id"] != apr["approval_id"]:
+        problems.append("approval_id")
+    # 承認した期間・時刻との対応（notBefore は署名時刻の300秒前。中間CAの開始で切り詰めた場合を除く）
+    nb, na = parse_iso(info["not_before"]), parse_iso(info["not_after"])
+    slack = dt.timedelta(seconds=120)
+    if na - nb > dt.timedelta(days=apr["days"], seconds=BACKDATE_SECONDS) + slack:
+        problems.append("validity_exceeds_approval")
+    if issuer_info is None or nb > parse_iso(issuer_info["not_before"]):
+        signed_at = nb + dt.timedelta(seconds=BACKDATE_SECONDS)
+        if not (parse_iso(apr["approved_at"]) - slack <= signed_at <= parse_iso(apr["expires_at"]) + slack):
+            problems.append("signed_outside_approval_window")
+    # 現在の有効期間（台帳の V は期限切れを反映しない）
+    now = utcnow()
+    if now < nb:
+        problems.append("not_yet_valid")
+    if now > na:
+        problems.append("expired")
+    # 発行元CAの世代と運用状態
+    problems += issuer_usability_problems(lab, rec.get("generation"))
+    # 署名経路・失効（Issuer 名の一致は、その鍵で署名されたことの証明にならない）
+    code = chain_problem(lab, pem, base)
+    if code:
+        problems.append(f"chain_{code}")
     return problems
 
 
-def _quarantine(lab: Lab, req_id: str, op_id: str | None, serial: str | None, problems: list[str]) -> dict:
-    """発行後検査に不合格の証明書を失効させ、CRL を公開してから隔離する。
-    失効か CRL 公開に失敗したら、中間CAを SUSPENDED にして未完了の失効を記録する。"""
-    pem = lab.p("issuer", "newcerts", f"{serial}.pem") if serial else None
-    rows = {r["serial"]: r for r in read_index(lab.p("issuer"))}
-    if pem and pem.exists() and rows.get(serial, {}).get("status") == "V":
-        cp = lab.openssl("ca", "-config", ISSUER_CNF, "-revoke", pem, "-crl_reason", "cessationOfOperation",
-                         "-passin", f"file:{lab.issuer_pass}", check=False)
-        ok = cp.returncode == 0
-        if ok:
+def pem_cert_ders(data: bytes) -> list[bytes]:
+    """PEM の並びから証明書の DER を順に取り出す。証明書以外（鍵など）が混ざっていれば拒否。"""
+    blocks = re.findall(rb"-----BEGIN ([A-Z0-9 ]+)-----\s*(.*?)\s*-----END \1-----", data, re.S)
+    if not blocks or any(label != b"CERTIFICATE" for label, _ in blocks):
+        raise LabError("CHAIN_BAD_CONTENT", "証明書以外の PEM を含むか、証明書がありません")
+    try:
+        return [base64.b64decode(b"".join(body.split()), validate=True) for _, body in blocks]
+    except ValueError:
+        raise LabError("CHAIN_BAD_CONTENT", "PEM を復号できません")
+
+
+def deployment_problems(lab: Lab, st: dict, rec: dict, require_key: bool = True) -> list[str]:
+    """配置物（葉・fullchain・公開コピー・サーバー鍵）が発行記録と一致するかを確かめる。"""
+    base = lab.issuer_base(rec.get("generation"))
+    out = []
+
+    def der_sha(path: Path | None) -> str | None:
+        if path is None or not path.exists():
+            return None
+        try:
+            return cert_info(lab, path)["cert_sha256"]
+        except LabError:
+            return None
+
+    if der_sha(lab.p(st["cert"]) if st.get("cert") else None) != rec["cert_sha256"]:
+        out.append("leaf")
+    chain = lab.p(st["fullchain"]) if st.get("fullchain") else None
+    if chain is None or not chain.exists():
+        out.append("fullchain_missing")
+    else:
+        try:
+            ders = pem_cert_ders(chain.read_bytes())
+            inter = der_sha(base / "certs" / "intermediate.cert.pem")
+            # 葉 → 中間CA の2枚だけ（ルートは送らない）
+            if [sha256_bytes(d) for d in ders] != [rec["cert_sha256"], inter]:
+                out.append("fullchain_mismatch")
+        except LabError:
+            out.append("fullchain_bad_content")
+    if der_sha(lab.p("public", "certs", f"{rec['serial']}.pem")) != rec["cert_sha256"]:
+        out.append("public_copy")
+    key = st.get("server_key")
+    if key:
+        kp = Path(key) if Path(key).is_absolute() else lab.p(key)
+        if not kp.exists():
+            if require_key:
+                out.append("server_key_missing")
+        else:
+            cp = lab.openssl("pkey", "-in", kp, "-pubout", "-outform", "DER", check=False)
+            if cp.returncode != 0:
+                out.append("server_key_unreadable")
+            elif sha256_bytes(cp.stdout) != rec["pubkey_sha256"]:
+                out.append("server_key_mismatch")
+    return out
+
+
+def _quarantine(lab: Lab, req_id: str, op_id: str | None, serial: str | None, problems: list[str],
+                generation: int | None = None) -> dict:
+    """不合格の証明書を隔離する。現在の中間CAの台帳にあれば失効させ、公開 CRL への反映まで確認する。
+    失効の公開が完了しなければ revocation=pending（中間CAは SUSPENDED、署名前に必ず再試行・拒否）。"""
+    ca = lab.ca_state()
+    revocation = "none"
+    if serial:
+        if (generation not in (None, ca["generation"])) or ca["status"] in ("REVOKED", "RETIRED"):
+            revocation = "not_needed_issuer_revoked"  # 発行元CAごと失効・廃止済み
+        elif serial in {r["serial"] for r in read_index(lab.p("issuer"))}:
             try:
-                _gen_crl(lab, "issuer")
+                _revoke_and_publish(lab, "issuer", serial, "cessationOfOperation")
+                revocation = "done"
             except LabError:
-                ok = False
-        if not ok:
-            lab.set_ca_state("SUSPENDED", "pending revocation of quarantined certificate", pending_revocation=serial)
-            if op_id:
-                _journal(lab, op_id, pending_revocation=serial)
-            lab.audit("quarantine", "revocation_pending", req_id, serial=serial, problems=problems)
-            lab.set_state(req_id, "QUARANTINED", problems=problems, serial=serial)
-            return {"request": req_id, "action": "quarantined", "revocation": "pending", "problems": problems}
-    lab.set_state(req_id, "QUARANTINED", problems=problems, serial=serial)
+                revocation = "pending"
+    lab.set_state(req_id, "QUARANTINED", problems=problems, serial=serial, revocation=revocation)
     if op_id:
-        _journal(lab, op_id, finished=iso(utcnow()), result="quarantined")
-    lab.audit("quarantine", "ok", req_id, serial=serial or "", problems=problems)
-    return {"request": req_id, "action": "quarantined", "revocation": "done" if serial else "none",
-            "problems": problems}
+        _journal(lab, op_id, finished=iso(utcnow()), result=f"quarantined:{revocation}")
+    lab.audit_if_possible("quarantine", "ok" if revocation != "pending" else "revocation_pending", req_id,
+                          serial=serial or "", problems=problems, revocation=revocation)
+    return {"request": req_id, "action": "quarantined", "revocation": revocation, "problems": problems}
 
 
 def _publish(lab: Lab, req_id: str, republish: bool = False) -> dict:
-    """署名済み（ISSUED）の証明書を、再署名せずにサーバーと公開領域へ配置する。"""
+    """署名済み（ISSUED）の証明書を、再署名せずにサーバーと公開領域へ配置する。
+    配置の前に、採用条件（validate_issued）を毎回確認する。"""
     st = lab.state(req_id)
     d = lab.req_dir(req_id)
     rec = read_json(d / "cert.json")
     apr = read_json(lab.p("approvals", f"{req_id}.json"))
     problems = validate_issued(lab, rec, apr)
     if problems:
-        res = _quarantine(lab, req_id, st.get("op_id"), rec["serial"], problems)
+        res = _quarantine(lab, req_id, st.get("op_id"), rec["serial"], problems, rec.get("generation"))
         raise LabError("POST_ISSUE_CHECK_FAILED", f"配置前の検査で不合格: {problems}", **res)
     base = lab.issuer_base(rec.get("generation"))
     data = (base / "newcerts" / f"{rec['serial']}.pem").read_bytes()
@@ -1075,8 +1259,11 @@ def _publish(lab: Lab, req_id: str, republish: bool = False) -> dict:
     atomic_write(leaf, data)
     atomic_write(chain, data + (base / "certs" / "intermediate.cert.pem").read_bytes())
     atomic_write(lab.p("public", "certs", f"{rec['serial']}.pem"), data)
-    lab.set_state(req_id, "PUBLISHED", cert=str(leaf.relative_to(lab.home)),
-                  fullchain=str(chain.relative_to(lab.home)))
+    st = lab.set_state(req_id, "PUBLISHED", cert=str(leaf.relative_to(lab.home)),
+                       fullchain=str(chain.relative_to(lab.home)))
+    left = deployment_problems(lab, st, rec, require_key=False)
+    if left:
+        raise LabError("PUBLISH_INCOMPLETE", f"配置後の確認で不一致: {left}", problems=left)
     if st.get("op_id"):
         _journal(lab, st["op_id"], finished=iso(utcnow()), result="ok", serial=rec["serial"])
     lab.audit("republish" if republish else "publish", "ok", req_id, serial=rec["serial"])
@@ -1085,25 +1272,30 @@ def _publish(lab: Lab, req_id: str, republish: bool = False) -> dict:
 
 
 def _ensure_published(lab: Lab, req_id: str) -> dict:
-    """PUBLISHED でも、配置物が台帳の証明書と一致しているかを確かめてから返す。"""
+    """PUBLISHED でも、証明書が今も使えること（期限・経路・CA状態）と、配置物（葉・fullchain・
+    公開コピー・サーバー鍵）が正しいことを確かめてから返す。壊れた配置物は正本から配置し直す。"""
     st = lab.state(req_id)
     rec = read_json(lab.req_dir(req_id) / "cert.json")
-    leaf = lab.p(st["cert"])
-    ok = leaf.exists()
-    if ok:
-        try:
-            ok = cert_info(lab, leaf)["cert_sha256"] == rec["cert_sha256"]
-        except LabError:
-            ok = False
-    if not ok:
-        return {**_publish(lab, req_id, republish=True), "reused": True, "republished": True}
-    return {"request": req_id, "serial": rec["serial"], "cert": str(leaf), "fullchain": str(lab.p(st["fullchain"])),
-            "not_after": rec["not_after"], "reused": True}
+    apr = read_json(lab.p("approvals", f"{req_id}.json"))
+    usable = validate_issued(lab, rec, apr)
+    if usable:
+        # 状態は変えない（期限切れ・CA失効などは、新しい申請で再発行する）
+        raise LabError("CERT_NOT_USABLE", f"この証明書は現在使えません: {usable}", problems=usable)
+    dep = deployment_problems(lab, st, rec)
+    keys = [p for p in dep if p.startswith("server_key")]
+    if keys:
+        raise LabError("SERVER_KEY_PROBLEM", f"サーバー鍵が証明書と対応しません: {keys}", problems=keys)
+    if dep:
+        return {**_publish(lab, req_id, republish=True), "reused": True, "republished": True, "repaired": dep}
+    return {"request": req_id, "serial": rec["serial"], "cert": str(lab.p(st["cert"])),
+            "fullchain": str(lab.p(st["fullchain"])), "not_after": rec["not_after"], "reused": True}
 
 
-def _record_issued(lab: Lab, req_id: str, apr: dict, info: dict, op_id: str | None) -> dict:
+def _record_issued(lab: Lab, req_id: str, apr: dict, info: dict, op_id: str | None,
+                   generation: int | None = None) -> dict:
     rec = {"issuer": info["issuer"], "serial": info["serial"], "request": req_id,
-           "approval_id": apr["approval_id"], "op_id": op_id, "generation": lab.ca_state()["generation"],
+           "approval_id": apr["approval_id"], "op_id": op_id,
+           "generation": generation if generation is not None else lab.ca_state()["generation"],
            "cert_sha256": info["cert_sha256"], "pubkey_sha256": info["pubkey_sha256"], "san": info["san"],
            "not_before": info["not_before"], "not_after": info["not_after"]}
     write_json(lab.req_dir(req_id) / "cert.json", rec)
@@ -1131,6 +1323,7 @@ def cmd_issue(lab: Lab, args) -> dict:
         if st["status"] != "APPROVED":
             raise LabError("NOT_APPROVED", f"承認されていない申請です（{st['status']}）")
 
+        _finish_pending(lab, "issuer")  # 未完了の失効があれば先に完了させる（できなければ拒否）
         issuer = require_issuer_active(lab)
         apr_path = lab.p("approvals", f"{req_id}.json")
         if not apr_path.exists():
@@ -1161,7 +1354,7 @@ def cmd_issue(lab: Lab, args) -> dict:
         rows_before = len(read_index(lab.p("issuer")))
         _journal(lab, op_id, op="issue", request=req_id, started=iso(now), finished=None,
                  csr_sha256=apr["csr_sha256"], approval_id=apr["approval_id"],
-                 index_rows_before=rows_before, signed=False)
+                 generation=lab.ca_state()["generation"], index_rows_before=rows_before, signed=False)
         lab.set_state(req_id, "SIGNING", op_id=op_id)
         _crash_point("before-sign")
 
@@ -1174,7 +1367,7 @@ def cmd_issue(lab: Lab, args) -> dict:
             lab.openssl("ca", "-config", ISSUER_CNF, "-batch", "-notext",
                         "-in", csr_path, "-out", staging, "-passin", f"file:{lab.issuer_pass}",
                         "-extfile", ext, "-extensions", "server_cert",
-                        "-subj", "/CN=" + apr["san"][0].split(":", 1)[1],
+                        "-subj", "/CN=" + subject_cn(apr["san"]),
                         "-startdate", asn1_time(not_before), "-enddate", asn1_time(not_after))
         finally:
             ext.unlink(missing_ok=True)
@@ -1232,6 +1425,9 @@ def cmd_recover(lab: Lab, args) -> dict:
         if not j or j.get("request") != req_id or j.get("csr_sha256") != apr["csr_sha256"]:
             res = _quarantine(lab, req_id, op_id, None, ["journal_missing_or_mismatch"])
             return {**res, "action": "quarantined"}
+        # 署名した世代の台帳で探す（その後に世代交代していれば、採用前の検査で不合格になる）
+        gen = j.get("generation", lab.ca_state()["generation"])
+        base = lab.issuer_base(gen)
 
         if j.get("serial"):
             candidates = [j["serial"]]
@@ -1243,10 +1439,10 @@ def cmd_recover(lab: Lab, args) -> dict:
                 if c.parent.name != req_id:
                     claimed.add(read_json(c)["serial"])
             candidates = []
-            for row in read_index(lab.p("issuer"))[j.get("index_rows_before", 0):]:
+            for row in read_index(base)[j.get("index_rows_before", 0):]:
                 if row["serial"] in claimed:
                     continue
-                pem = lab.p("issuer", "newcerts", f"{row['serial']}.pem")
+                pem = base / "newcerts" / f"{row['serial']}.pem"
                 try:
                     info = cert_info(lab, pem)
                 except LabError:
@@ -1267,21 +1463,22 @@ def cmd_recover(lab: Lab, args) -> dict:
             return {"request": req_id, "action": "quarantined", "candidates": candidates}
 
         serial = candidates[0]
-        pem = lab.p("issuer", "newcerts", f"{serial}.pem")
+        pem = base / "newcerts" / f"{serial}.pem"
         try:
             info = cert_info(lab, pem)
         except LabError:
-            res = _quarantine(lab, req_id, op_id, None, ["newcert_unparseable"])
+            res = _quarantine(lab, req_id, op_id, None, ["newcert_unparseable"], gen)
             return {**res, "action": "quarantined"}
         if j.get("cert_sha256") and j["cert_sha256"] != info["cert_sha256"]:
-            res = _quarantine(lab, req_id, op_id, serial, ["cert_hash_differs_from_journal"])
+            res = _quarantine(lab, req_id, op_id, serial, ["cert_hash_differs_from_journal"], gen)
             return {**res, "action": "quarantined"}
+        # 採用前に、期限・署名経路・失効・発行CAの世代と状態・承認との対応まで確認する
         problems = validate_issued(lab, {"serial": serial, "cert_sha256": info["cert_sha256"],
-                                         "generation": lab.ca_state()["generation"]}, apr)
+                                         "generation": gen, "approval_id": j.get("approval_id")}, apr)
         if problems:
-            res = _quarantine(lab, req_id, op_id, serial, problems)
+            res = _quarantine(lab, req_id, op_id, serial, problems, gen)
             return {**res, "action": "quarantined"}
-        _record_issued(lab, req_id, apr, info, op_id)
+        _record_issued(lab, req_id, apr, info, op_id, gen)
         lab.audit("recover", "ok", req_id, action="adopted_signed_certificate", serial=serial)
         out = _publish(lab, req_id)
     return {**out, "action": "adopted_signed_certificate"}
@@ -1291,7 +1488,8 @@ def cmd_recover(lab: Lab, args) -> dict:
 # 失効・CRL
 # =============================================================================
 
-def _gen_crl(lab: Lab, which: str) -> Path:
+def _gen_crl(lab: Lab, which: str) -> dict:
+    """CRL を生成し、署名を確認してから CA 内部 → 公開領域の順に書き、公開物を読み戻して確認する。"""
     cnf = ROOT_CNF if which == "root" else ISSUER_CNF
     pw = lab.root_pass if which == "root" else lab.issuer_pass
     ca_cert = lab.root_cert if which == "root" else lab.issuer_cert
@@ -1308,20 +1506,103 @@ def _gen_crl(lab: Lab, which: str) -> Path:
         raise LabError("CRL_SIGNATURE_FAILED", "生成した CRL の署名を検証できません")
     data = tmp.read_bytes()
     tmp.unlink()
-    atomic_write(out, data)
-    atomic_write(lab.p("public", "crl", name), data)
+    atomic_write(out, data)                       # CA 内部の CRL
+    _fault("crl-publish")
+    public = lab.p("public", "crl", name)
+    atomic_write(public, data)                    # 公開 CRL
+    pub = crl_meta(lab, public, ca_cert)
+    if not pub.get("sig_ok") or pub.get("sha256") != meta["sha256"]:
+        raise LabError("CRL_PUBLISH_INCOMPLETE", "公開した CRL を読み戻して確認できません")
     # 公開した CRL の番号とハッシュを記録（照合でロールバックや差し替えを検出する）
     write_json(lab.p(which, "db", "crl_published.json"),
                {"number": meta["number"], "sha256": meta["sha256"], "next_update": meta["next_update"]})
     lab.audit(f"crl-{which}", "ok", name, crl_number=meta["number"], next_update=meta["next_update"],
               crl_sha256=meta["sha256"], revoked=len(meta["revoked"]))
-    return out
+    return {**pub, "path": str(out)}
+
+
+# --- 失効の状態機械 ------------------------------------------------------------
+# 失効は「要求」→「台帳（ledger）」→「CRL 生成・公開・読み戻し確認」の順に進む。
+# <ca>/db/revocation_pending.json に未完了の失効を、失効コマンドより先に書く。
+# 途中で失敗・停止したら記録が残り、その CA での署名・配置の前に必ず再試行され、
+# 完了できなければ拒否される（中間CAは SUSPENDED）。台帳が既に R でも、公開 CRL に
+# 載ったことを確認するまでは完了にしない。
+
+def _pending_path(lab: Lab, which: str) -> Path:
+    return lab.p(which, "db", "revocation_pending.json")
+
+
+def pending_revocations(lab: Lab, which: str) -> list[dict]:
+    path = _pending_path(lab, which)
+    return read_json(path)["entries"] if path.exists() else []
+
+
+def _save_pending(lab: Lab, which: str, entries: list[dict]) -> None:
+    path = _pending_path(lab, which)
+    if entries:
+        write_json(path, {"entries": entries})
+    elif path.exists():
+        path.unlink()
+        fsync_dir(path.parent)
+
+
+def _revoke_and_publish(lab: Lab, which: str, serial: str, reason: str) -> dict:
+    """呼び出し側が該当 CA のロックを持っていること。"""
+    entries = pending_revocations(lab, which)
+    if not any(e["serial"] == serial for e in entries):
+        entries.append({"serial": serial, "reason": reason, "requested_at": iso(utcnow()),
+                        "by": lab.actor, "stage": "requested"})
+        _save_pending(lab, which, entries)  # ここで失敗したら、失効はまだ何もしていない
+    return _finish_pending(lab, which)
+
+
+def _finish_pending(lab: Lab, which: str) -> dict:
+    """未完了の失効を完了させる。完了できなければ REVOCATION_PENDING。"""
+    entries = pending_revocations(lab, which)
+    if not entries:
+        return {"completed": []}
+    cnf, pw = (ROOT_CNF, lab.root_pass) if which == "root" else (ISSUER_CNF, lab.issuer_pass)
+    base = lab.p(which)
+    serials = [e["serial"] for e in entries]
+    try:
+        rows = {r["serial"]: r for r in read_index(base)}
+        for e in entries:
+            row = rows.get(e["serial"])
+            if row is None:
+                raise LabError("UNKNOWN_SERIAL", f"台帳にない証明書です: {e['serial']}")
+            if row["status"] == "V":
+                _revoke_in(lab, cnf, base / "newcerts" / f"{e['serial']}.pem", e["reason"], pw)
+            e["stage"] = "ledger"
+        _save_pending(lab, which, entries)
+        meta = _gen_crl(lab, which)
+        missing = set(serials) - meta["revoked"]
+        if missing:
+            raise LabError("CRL_PUBLISH_INCOMPLETE", f"公開 CRL に載っていません: {sorted(missing)}")
+    except Exception as ex:  # noqa: BLE001  I/O 障害（OSError）も未完了として扱う
+        detail = f"{type(ex).__name__}: {ex}"
+        if which == "issuer":
+            with contextlib.suppress(Exception):
+                if lab.ca_state()["status"] == "ACTIVE":
+                    lab.set_ca_state("SUSPENDED", "revocation pending", pending_revocation=serials)
+        with contextlib.suppress(Exception):
+            lab.incident("REVOCATION_PENDING", which=which, serials=serials, error=detail)
+        raise LabError("REVOCATION_PENDING",
+                       f"失効の公開が完了していません（{detail}）。原因を取り除いて crl-{which} で再試行してください",
+                       pending=serials, which=which) from ex
+    _save_pending(lab, which, [])
+    if which == "issuer":
+        st = lab.ca_state()
+        if st["status"] == "SUSPENDED" and st.get("pending_revocation"):
+            lab.set_ca_state("ACTIVE", "pending revocation completed", pending_revocation=None)
+    return {"completed": serials, "crl": meta["path"], "crl_number": meta["number"]}
 
 
 def cmd_crl_root(lab: Lab, args) -> dict:
     lab.require("crl-root")
     with lab.ca_lock("root"):
-        return {"crl": str(_gen_crl(lab, "root"))}
+        res = _finish_pending(lab, "root")
+        crl = res["crl"] if res["completed"] else _gen_crl(lab, "root")["path"]
+        return {"crl": crl, "completed_revocations": res["completed"]}
 
 
 def cmd_crl_issuer(lab: Lab, args) -> dict:
@@ -1329,7 +1610,9 @@ def cmd_crl_issuer(lab: Lab, args) -> dict:
     with lab.ca_lock("issuer"):
         if lab.ca_state()["status"] in ("REVOKED", "RETIRED"):
             raise LabError("CA_NOT_ACTIVE", "失効・廃止した中間CAで CRL は作りません")
-        return {"crl": str(_gen_crl(lab, "issuer"))}
+        res = _finish_pending(lab, "issuer")
+        crl = res["crl"] if res["completed"] else _gen_crl(lab, "issuer")["path"]
+        return {"crl": crl, "completed_revocations": res["completed"], "ca_state": lab.ca_state()["status"]}
 
 
 REASONS = {"unspecified", "keyCompromise", "CACompromise", "affiliationChanged",
@@ -1344,7 +1627,7 @@ def _revoke_in(lab: Lab, cnf: Path, pem: Path, reason: str, pw: Path) -> None:
 
 
 def cmd_revoke(lab: Lab, args) -> dict:
-    """サーバー証明書の失効。失効したら直ちに CRL を再発行・配布する。"""
+    """サーバー証明書の失効。台帳 → CRL 生成 → 公開 CRL の確認まで完了させる。"""
     lab.require("revoke")
     if args.reason not in REASONS:
         raise LabError("BAD_REASON", f"失効理由は {sorted(REASONS)} のいずれか")
@@ -1353,23 +1636,20 @@ def cmd_revoke(lab: Lab, args) -> dict:
         pem = lab.p("issuer", "newcerts", f"{serial}.pem")
         if not pem.exists():
             raise LabError("UNKNOWN_SERIAL", f"現在の中間CAが発行した証明書ではありません: {serial}")
-        _revoke_in(lab, ISSUER_CNF, pem, args.reason, lab.issuer_pass)
+        res = _revoke_and_publish(lab, "issuer", serial, args.reason)
         lab.audit("revoke", "ok", serial, reason=args.reason, incident=args.incident or "")
-        crl = _gen_crl(lab, "issuer")
-    return {"revoked": serial, "reason": args.reason, "crl": str(crl)}
+    return {"revoked": serial, "reason": args.reason, "crl": res.get("crl")}
 
 
 def cmd_revoke_intermediate(lab: Lab, args) -> dict:
-    """中間CAの失効。ルート CRL に載せ、中間CAの運用状態を REVOKED にして発行を止める。"""
+    """中間CAの失効。先に中間CAを REVOKED にして発行を止め、ルート CRL の公開まで完了させる。"""
     lab.require("revoke-intermediate")
     with lab.ca_lock("issuer"), lab.ca_lock("root"):
         info = cert_info(lab, lab.issuer_cert)
-        pem = lab.p("root", "newcerts", f"{info['serial']}.pem")
-        _revoke_in(lab, ROOT_CNF, pem, args.reason, lab.root_pass)
         lab.set_ca_state("REVOKED", args.reason)
+        res = _revoke_and_publish(lab, "root", info["serial"], args.reason)
         lab.audit("revoke-intermediate", "ok", info["serial"], reason=args.reason)
-        crl = _gen_crl(lab, "root")
-    return {"revoked": info["serial"], "ca_state": "REVOKED", "crl": str(crl)}
+    return {"revoked": info["serial"], "ca_state": "REVOKED", "crl": res.get("crl")}
 
 
 def resolve_serial(lab: Lab, target: str) -> str:
@@ -1415,6 +1695,8 @@ VERIFY_CODES = {
     62: "SAN_MISMATCH", 64: "SAN_MISMATCH", 22: "CHAIN_TOO_LONG",
 }
 INDETERMINATE = {"CRL_MISSING", "CRL_EXPIRED", "CRL_NOT_YET_VALID", "CRL_BAD_SIGNATURE"}
+# 失効確認の段階が結果を返したと分かるコード
+REVOCATION_CODES = {"LEAF_REVOKED", "INTERMEDIATE_REVOKED", "REVOKED"} | INDETERMINATE
 
 
 def classify_verify(code: int, depth: int) -> str:
@@ -1433,22 +1715,37 @@ def cmd_verify(lab: Lab, args) -> dict:
     info = cert_info(lab, cert)
     base = {"serial": info.get("serial"), "san": info["san"], "crl_check": not args.no_crl}
 
-    def done(verdict: str, code: str, **extra) -> dict:
+    def done(verdict: str, code: str, stopped_at: str, **extra) -> dict:
+        # 「失効確認を要求した」と「失効確認が実行された」を分けて記録する。
+        #   not_requested : --no-crl
+        #   not_executed  : OpenSSL を呼ぶ前（名前の確認）で止まった
+        #   reported      : OpenSSL が失効・CRL に関する結果を返した
+        #   not_observed  : OpenSSL を呼んだが、内部で失効確認まで到達したかは観測していない
+        if args.no_crl:
+            observation = "not_requested"
+        elif stopped_at != "openssl_verify":
+            observation = "not_executed"
+        elif code in REVOCATION_CODES:
+            observation = "reported"
+        else:
+            observation = "not_observed"
         lab.audit("verify", verdict.lower(), info.get("serial", ""), code=code, host=host or "",
-                  purpose=args.purpose, crl_check=not args.no_crl, attime=args.attime or "")
-        return {"result": verdict, "code": code, **base, **extra}
+                  purpose=args.purpose, crl_check=not args.no_crl, attime=args.attime or "",
+                  stopped_at=stopped_at, revocation_observation=observation)
+        return {"result": verdict, "code": code, **base, "stopped_at": stopped_at,
+                "revocation_observation": observation, **extra}
 
     # 名前は型付きで照合する。DNS 接続には dNSName、IP 接続には iPAddress の完全一致が必要。
     # （openssl verify -verify_hostname は該当する型の SAN が無いと CN を見に行くため、
     #   CN フォールバックを許さないよう、ここで先に判定する）
     if not info["san"]:
-        return done("REJECT", "SAN_REQUIRED")
+        return done("REJECT", "SAN_REQUIRED", "san_check")
     if host:
         want = host_identity(host)
         if want not in info["san"]:
             kind = want.split(":")[0]
             has_kind = any(s.startswith(kind + ":") for s in info["san"])
-            return done("REJECT", "SAN_MISMATCH", expected=want,
+            return done("REJECT", "SAN_MISMATCH", "san_check", expected=want,
                         detail="一致する SAN がありません" if has_kind else f"{kind} 型の SAN がありません（CN は見ません）")
 
     cmd = ["verify", "-show_chain", "-x509_strict", "-auth_level", "2", "-verify_depth", "1",
@@ -1469,13 +1766,13 @@ def cmd_verify(lab: Lab, args) -> dict:
     out = (cp.stdout + cp.stderr).decode(errors="replace")
     summary = [ln for ln in out.splitlines() if ln.startswith("error ") or ln.endswith(": OK")]
     if cp.returncode == 0:
-        return done("ACCEPT", "OK", openssl=summary[0] if summary else "")
+        return done("ACCEPT", "OK", "openssl_verify", openssl=summary[0] if summary else "")
     m = re.search(r"error (\d+) at (\d+) depth", out)
     code = classify_verify(int(m.group(1)), int(m.group(2))) if m else "VERIFY_ERROR"
     # 「失効している」と「失効状態を確認できない」は別の結果として記録し、
     # どちらの場合もラボ方針として接続は許可しない。
     verdict = "INDETERMINATE" if code in INDETERMINATE else "REJECT"
-    return done(verdict, code, openssl=summary[0] if summary else "")
+    return done(verdict, code, "openssl_verify", openssl=summary[0] if summary else "")
 
 
 # =============================================================================
@@ -1603,8 +1900,11 @@ def cmd_client(lab: Lab, args) -> dict:
                                  "observed_at": iso(utcnow())}
         except (OSError, LabError) as e:
             res["diagnostic"] = {"probable": "UNKNOWN", "error": str(e), "verified": False}
+    observation = ("not_requested" if args.no_crl else
+                   "reported" if res["code"] in REVOCATION_CODES else "not_observed")
+    res["revocation_observation"] = observation
     lab.audit("tls-connect", res["result"].lower(), f"{args.host}:{args.port}",
-              code=res["code"], crl_check=not args.no_crl)
+              code=res["code"], crl_check=not args.no_crl, revocation_observation=observation)
     return res
 
 
@@ -1709,7 +2009,9 @@ def run_check(lab: Lab) -> dict:
         if not path.exists():
             problems.append(f"必須ファイルがない: {label}")
     if problems:
-        return {"ok": False, "problems": problems}
+        if lab.rotation_marker.exists():
+            problems.append("中間CAの世代交代が途中です（init-issuer --new-generation で再開）")
+        return {"ok": False, "problems": problems, "warnings": []}
 
     root_subject = cert_info(lab, lab.root_cert)["subject"]
     issuer_info = cert_info(lab, lab.issuer_cert)
@@ -1721,8 +2023,17 @@ def run_check(lab: Lab) -> dict:
     _check_crl(lab, "root", lab.root_cert, root_ledger, problems, now)
 
     ca = lab.ca_state()
+    warnings: list[str] = []
+    for which in ("root", "issuer"):
+        pend = pending_revocations(lab, which)
+        if pend:
+            problems.append(f"[{which}] 公開まで完了していない失効がある: {[e['serial'] for e in pend]}")
     if ca.get("pending_revocation"):
-        problems.append(f"未完了の失効がある: {ca['pending_revocation']}")
+        problems.append(f"未完了の失効により中間CAが停止中: {ca['pending_revocation']}")
+    if lab.rotation_marker.exists():
+        problems.append("中間CAの世代交代が途中です（init-issuer --new-generation で再開）")
+    if lab.superseded():
+        warnings.append("この作業領域は復元先に置き換え済み（状態の変更はできません）")
     if ca["status"] == "ACTIVE" and issuer_info["serial"] in {s for s, v in root_ledger.items() if v["row"]["status"] == "R"}:
         problems.append("ルートで失効した中間CAが ACTIVE のまま")
 
@@ -1768,12 +2079,12 @@ def run_check(lab: Lab) -> dict:
         if info["eku"] != ["serverAuth"] or info["ca"] is not False:
             problems.append(f"発行物がプロファイル（用途・CA:FALSE）と一致しない: {rid}")
         if st["status"] == "PUBLISHED":
-            leaf = lab.p(st["cert"])
-            try:
-                if cert_info(lab, leaf)["cert_sha256"] != rec["cert_sha256"]:
-                    problems.append(f"配置された証明書が発行記録と違う: {rid}")
-            except LabError:
-                problems.append(f"配置された証明書がない、または解析できない: {rid}")
+            # 葉・fullchain（葉＋中間CA の2枚）・公開コピー・サーバー鍵との対応
+            for d_problem in deployment_problems(lab, st, rec, require_key=False):
+                problems.append(f"配置された証明書が発行記録と違う（{d_problem}）: {rid}")
+            key = st.get("server_key")
+            if key and not (Path(key) if Path(key).is_absolute() else lab.p(key)).exists():
+                warnings.append(f"サーバー鍵がこの作業領域にない（バックアップには含めない）: {rid}")
     for gen, ledger in ledgers.items():
         for serial, v in ledger.items():
             if (gen, serial) not in claimed and v["row"]["status"] == "V":
@@ -1784,7 +2095,8 @@ def run_check(lab: Lab) -> dict:
         problems.append(f"監査ログ: {audit['code']}")
     if lab.is_frozen():
         problems.append("監査ログの異常により凍結中")
-    return {"ok": not problems, "problems": problems, "ca_state": ca["status"], "generation": ca["generation"]}
+    return {"ok": not problems, "problems": problems, "warnings": warnings, "ca_state": ca["status"],
+            "generation": ca["generation"]}
 
 
 def cmd_check(lab: Lab, args) -> dict:
@@ -1802,15 +2114,51 @@ def cmd_check(lab: Lab, args) -> dict:
 # server/certs は公開情報（配置済みの証明書）なので含める。server/private と secrets/ は含めない。
 BACKUP_ITEMS = ["root", "issuer", "archive", "requests", "approvals", "journal", "audit", "anchor",
                 "incidents", "public", "server/certs"]
+# 復元で受け付ける最上位（recovery/・locks/・secrets/・server/private はアーカイブから受け付けない）
+RESTORE_ALLOWED_TOP = {"root", "issuer", "archive", "requests", "approvals", "journal", "audit", "anchor",
+                       "incidents", "public", "server"}
+BACKUP_FORMAT = "pkilab-backup/2"
+KDF_ITER_MIN, KDF_ITER_MAX = 10_000, 5_000_000
 
 
-def _mac_key(pass_file: Path, salt: bytes) -> bytes:
-    return hashlib.pbkdf2_hmac("sha256", pass_file.read_bytes().strip(), b"pkilab-backup-mac" + salt, KDF_ITER)
+def _manifest_mac(pass_file: Path, header: dict, blob: bytes) -> str:
+    """マニフェストの項目（形式・KDF 設定・監査の位置など）と暗号化データの両方を認証する。
+    鍵導出には、現在の設定ではなくマニフェストに記録した保存時の反復回数を使う。"""
+    key = hashlib.pbkdf2_hmac("sha256", pass_file.read_bytes().strip(),
+                              b"pkilab-backup-mac" + bytes.fromhex(header["hmac_salt"]), header["kdf_iter"])
+    return hmac.new(key, canonical(header) + b"\n" + blob, hashlib.sha256).hexdigest()
+
+
+def verify_backup(backup: Path, pass_file: Path) -> tuple[bool, dict | None, str]:
+    man_path = backup.with_name(backup.name + ".manifest.json")
+    if not man_path.exists():
+        return False, None, "マニフェストがありません"
+    if not pass_file.exists():
+        return False, None, "バックアップのパスフレーズがありません"
+    try:
+        man = read_json(man_path)
+        mac = man.pop("hmac")
+    except (ValueError, KeyError):
+        return False, None, "マニフェストを読めません"
+    if man.get("format") != BACKUP_FORMAT:
+        return False, None, f"対応していない形式です: {man.get('format')}"
+    iters = man.get("kdf_iter")
+    if not isinstance(iters, int) or not KDF_ITER_MIN <= iters <= KDF_ITER_MAX:
+        return False, None, f"KDF の反復回数が範囲外です: {iters}"
+    if man.get("file") != backup.name or not isinstance(man.get("hmac_salt"), str):
+        return False, None, "マニフェストとファイルが対応しません"
+    try:
+        expected = _manifest_mac(pass_file, man, backup.read_bytes())
+    except ValueError:
+        return False, None, "マニフェストを読めません"
+    if not hmac.compare_digest(expected, str(mac)):
+        return False, None, "HMAC が一致しません（改ざん・パスフレーズ違い）"
+    return True, man, ""
 
 
 def cmd_backup(lab: Lab, args) -> dict:
     """CA 一式（鍵は暗号化済みのまま・台帳・発行物・失効・CRL番号・承認・監査）を暗号化し、
-    改ざん検出用の HMAC（暗号化後のデータに対して）を付けて保存する。
+    マニフェストと暗号化データの両方に HMAC を付けて保存する。
     パスフレーズ（secrets/）とサーバー鍵は含めない（別経路で保管する前提）。"""
     lab.require("backup")
     pass_file = Path(args.pass_file) if args.pass_file else lab.p("secrets", "backup.pass")
@@ -1826,53 +2174,108 @@ def cmd_backup(lab: Lab, args) -> dict:
                 for item in BACKUP_ITEMS:
                     if lab.p(item).exists():
                         tar.add(lab.p(item), arcname=item,
-                                filter=lambda ti: None if ti.name.endswith((".lock", "ca.lock")) else ti)
+                                filter=lambda ti: None if ti.name.endswith(".lock") else ti)
             out = lab.p("backups", f"pkilab-{stamp}.tar.gz.enc")
             lab.openssl("enc", "-aes-256-cbc", "-pbkdf2", "-iter", KDF_ITER, "-salt",
                         "-in", tmp_tar, "-out", out, "-pass", f"file:{pass_file}")
         finally:
             tmp_tar.unlink(missing_ok=True)
-        salt = secrets.token_bytes(16)
         blob = out.read_bytes()
-        manifest = {"file": out.name, "sha256": sha256_bytes(blob), "hmac_salt": salt.hex(), "kdf_iter": KDF_ITER,
-                    "hmac": hmac.new(_mac_key(pass_file, salt), blob, hashlib.sha256).hexdigest(),
-                    "created": iso(utcnow()), "audit_seq": tail.get("seq"), "audit_head": tail.get("hash"),
-                    "excluded": ["secrets/", "server/private/", "lab/config/（リポジトリで管理）"]}
+        header = {"format": BACKUP_FORMAT, "file": out.name, "sha256": sha256_bytes(blob),
+                  "cipher": "aes-256-cbc", "kdf": "pbkdf2-hmac-sha256", "kdf_iter": KDF_ITER,
+                  "hmac_salt": secrets.token_bytes(16).hex(), "created": iso(utcnow()),
+                  "audit_seq": tail.get("seq"), "audit_head": tail.get("hash"),
+                  "generation": lab.ca_state()["generation"],
+                  "excluded": ["secrets/", "server/private/", "lab/config/（リポジトリで管理）"]}
+        manifest = {**header, "hmac": _manifest_mac(pass_file, header, blob)}
         write_json(out.with_name(out.name + ".manifest.json"), manifest)
-    lab.audit("backup", "ok", out.name, sha256=manifest["sha256"], audit_seq=manifest["audit_seq"])
+    lab.audit("backup", "ok", out.name, sha256=header["sha256"], audit_seq=header["audit_seq"])
     return {"backup": str(out), "manifest": str(out.with_name(out.name + ".manifest.json")),
-            "sha256": manifest["sha256"]}
+            "sha256": header["sha256"]}
 
 
 # 証明書・CRL・台帳の状態を変えない操作（バックアップ後に記録されても巻き戻りにならない）
 READONLY_OPS = {"verify", "tls-connect", "check", "restore", "backup", "bundle", "export-events", "serve-https"}
 
 
-def check_freshness(lab: Lab, dest: Path, checkpoint: Path | None) -> dict:
-    """復元したログが、最新のチェックポイントまでの状態変更をすべて含むかを確認する。"""
+def check_freshness(source: Path | None, dest: Path, checkpoint: Path | None) -> dict:
+    """復元したログが、信頼できる最新のチェックポイントまでの状態変更をすべて含むかを確かめる。
+    元の作業領域のログは、連鎖と基準ハッシュを検証でき、凍結されていないときだけ判断材料に使う。
+    （ログと基準ハッシュの両方を書き換えられた場合は、別媒体のチェックポイントでしか検出できない）"""
+    def no(detail: str, **kw) -> dict:
+        return {"freshness_confirmed": False, "freshness_detail": detail, **kw}
+
+    rres = verify_audit_chain(dest)
+    if not rres.get("internal_ok"):
+        return no("復元したログの連鎖を検証できません")
     restored = _audit_lines(dest)
-    head = json.loads(restored[-1])["hash"] if restored else "0" * 64
-    cp_path = checkpoint or lab.p("anchor", "anchor.json")
-    if not cp_path.exists():
-        return {"freshness_confirmed": False, "freshness_detail": "比較するチェックポイントがありません（--checkpoint）"}
-    cp = read_json(cp_path)
-    if 0 < cp["seq"] <= len(restored):
-        ok = json.loads(restored[cp["seq"] - 1]).get("hash") == cp["hash"]
-        return {"freshness_confirmed": ok,
+    r_len, r_head = len(restored), rres["head"]
+
+    def source_problem() -> dict | None:
+        """元の作業領域のログ・基準を判断材料に使ってよいか（凍結・連鎖異常なら使わない）。"""
+        if source is None or not source.exists():
+            return no("元の作業領域のログを確認できないため、バックアップ後の変更の有無が分かりません")
+        if (source / "audit" / "FROZEN.json").exists():
+            return no("元の作業領域は監査異常で凍結中のため、そのログを判断材料に使いません", source_frozen=True)
+        sres = verify_audit_chain(source)
+        if not sres["ok"]:
+            return no(f"元の作業領域のログを検証できません（{sres['code']}）", source_audit=sres["code"])
+        return None
+
+    if checkpoint is not None:
+        if not checkpoint.exists():
+            return no(f"指定したチェックポイントがありません: {checkpoint}")
+        cp, cp_source = read_json(checkpoint), "external"
+    elif source is not None and (source / "anchor" / "anchor.json").exists():
+        bad = source_problem()  # 元の基準を使うなら、元のログが検証できることが前提
+        if bad:
+            return bad
+        cp, cp_source = read_json(source / "anchor" / "anchor.json"), "source_anchor"
+    else:
+        return no("比較するチェックポイントがありません（--checkpoint または元の作業領域）")
+    if not isinstance(cp.get("seq"), int) or not isinstance(cp.get("hash"), str) or cp["seq"] < 0:
+        return no("チェックポイントの形式が不正です")
+    base = {"checkpoint_seq": cp["seq"], "checkpoint_source": cp_source, "backup_seq": r_len}
+    if cp["seq"] <= r_len:
+        ok = cp["seq"] == 0 or json.loads(restored[cp["seq"] - 1]).get("hash") == cp["hash"]
+        return {"freshness_confirmed": ok, **base,
                 **({} if ok else {"freshness_detail": "チェックポイントと復元したログが分岐しています"})}
-    # チェックポイントの方が新しい：元のログが読めれば、差分が読み取り専用の操作だけか確かめる
-    live = _audit_lines(lab.home) if checkpoint is None else []
-    if live and len(live) >= cp["seq"] and len(restored) > 0 and \
-            json.loads(live[len(restored) - 1]).get("hash") == head:
-        later = [json.loads(x) for x in live[len(restored):cp["seq"]]]
-        changing = [f"{e['seq']}:{e['op']}" for e in later if e["op"] not in READONLY_OPS]
-        if not changing:
-            return {"freshness_confirmed": True,
-                    "freshness_detail": f"バックアップ後の {len(later)} 件は読み取り専用の操作のみ"}
-        return {"freshness_confirmed": False, "lost_changes": changing,
-                "freshness_detail": "バックアップ後の状態変更（失効など）が含まれていません。復元すると巻き戻ります"}
-    return {"freshness_confirmed": False,
-            "freshness_detail": f"チェックポイント seq={cp['seq']} がバックアップ（最終 seq={len(restored)}）に含まれていません"}
+    # チェックポイントの方が新しい：差分を元のログで確かめる（検証できる場合だけ）
+    bad = source_problem()
+    if bad:
+        return {**bad, **base}
+    live = _audit_lines(source)
+    if len(live) < cp["seq"] or json.loads(live[cp["seq"] - 1]).get("hash") != cp["hash"]:
+        return no("チェックポイントが、検証した元のログに含まれていません", **base)
+    if r_len > 0 and json.loads(live[r_len - 1]).get("hash") != r_head:
+        return no("復元したログと元のログが分岐しています", **base)
+    later = [json.loads(x) for x in live[r_len:cp["seq"]]]
+    changing = [f"{e['seq']}:{e['op']}" for e in later if e["op"] not in READONLY_OPS]
+    if changing:
+        return no("バックアップ後の状態変更（失効など）が含まれていません。復元すると巻き戻ります",
+                  lost_changes=changing, **base)
+    return {"freshness_confirmed": True, **base,
+            "freshness_detail": f"バックアップ後の {len(later)} 件は、検証済みログ上の読み取り専用の操作のみ"}
+
+
+def _freshness(source: Path | None, dest: Path, checkpoint: Path | None) -> dict:
+    """使える基準（元の作業領域の基準・別媒体のチェックポイント）のすべてで新しさを確かめる。
+    どれか一つでも確認できなければ、新しいとはみなさない。"""
+    checks = {}
+    if source is not None:
+        checks["source"] = check_freshness(source, dest, None)
+    if checkpoint is not None:
+        checks["external"] = check_freshness(source, dest, checkpoint)
+    if not checks:
+        return {"freshness_confirmed": False, "freshness_detail": "元の作業領域もチェックポイントもありません"}
+    first = next(iter(checks.values()))
+    out = {**first, "freshness_confirmed": all(c["freshness_confirmed"] for c in checks.values())}
+    if len(checks) > 1:
+        out["checks"] = checks
+    lost = sorted({x for c in checks.values() for x in c.get("lost_changes", [])})
+    if lost:
+        out["lost_changes"] = lost
+    return out
 
 
 def _key_access(lab: Lab, key: Path, pass_file: Path | None) -> bool:
@@ -1881,32 +2284,37 @@ def _key_access(lab: Lab, key: Path, pass_file: Path | None) -> bool:
     return lab.openssl("pkey", "-in", key, "-passin", f"file:{pass_file}", "-noout", check=False).returncode == 0
 
 
+READY_KEYS = ("archive_integrity_ok", "state_consistent", "freshness_confirmed", "key_access_ready")
+
+
 def cmd_restore(lab: Lab, args) -> dict:
     """空の隔離ディレクトリへ復元し、準備状況を項目ごとに判定する。
-    復元先は「復旧保留」状態になり、resume で再開を承認するまで署名・CRL 公開をしない。"""
+    最初に「復元中」の保留を永続化するので、途中で止まっても復元先では発行・CRL 公開・再開ができない。"""
     lab.require("restore")
     dest = Path(args.dest).resolve()
     if dest.exists() and any(dest.iterdir()):
         raise LabError("DEST_NOT_EMPTY", "復旧先は空の隔離ディレクトリにしてください")
-    backup = Path(args.backup)
+    if dest == lab.home or lab.home in dest.parents:
+        raise LabError("DEST_INSIDE_SOURCE", "復旧先は元の作業領域の外にしてください")
+    backup = Path(args.backup).resolve()
     pass_file = Path(args.pass_file) if args.pass_file else lab.p("secrets", "backup.pass")
-    report: dict = {"restored_to": str(dest), "archive_integrity_ok": False, "state_consistent": False,
-                    "freshness_confirmed": False, "key_access_ready": False, "resume_authorized": False}
+    checkpoint = Path(args.checkpoint).resolve() if args.checkpoint else None
+    dest.mkdir(parents=True, exist_ok=True)
+    restored = Lab(dest, lab.actor, "auditor")
+    hold = {"status": "RESTORING", "since": iso(utcnow()), "from": backup.name,
+            "source_home": str(lab.home), "checkpoint": str(checkpoint) if checkpoint else None}
+    write_json(restored.hold_marker, hold)
+    report: dict = {"restored_to": str(dest), **{k: False for k in READY_KEYS}, "resume_authorized": False}
 
-    # 1. 暗号化後のデータの HMAC を、復号する前に検証する
-    man_path = backup.with_name(backup.name + ".manifest.json")
-    if man_path.exists() and pass_file.exists():
-        man = read_json(man_path)
-        blob = backup.read_bytes()
-        mac = hmac.new(_mac_key(pass_file, bytes.fromhex(man["hmac_salt"])), blob, hashlib.sha256).hexdigest()
-        report["archive_integrity_ok"] = hmac.compare_digest(mac, man["hmac"])
-    if not report["archive_integrity_ok"]:
-        report["reason"] = "バックアップの改ざん検出用 HMAC を確認できません（マニフェスト欠落・パスフレーズ違い・改ざん）"
+    # 1. マニフェストと暗号化データの HMAC を、復号する前に検証する
+    ok, man, reason = verify_backup(backup, pass_file)
+    report["archive_integrity_ok"] = ok
+    if not ok:
+        report.update(reason=reason, ready=False)
+        write_json(restored.hold_marker, {**hold, "status": "REJECTED", "reason": reason})
         lab.audit_if_possible("restore", "rejected", str(dest), reason="integrity")
-        report["ready"] = False
         return report
 
-    dest.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(suffix=".tar.gz", dir=dest)
     os.close(fd)
     tmp_tar = Path(tmp_name)
@@ -1914,65 +2322,90 @@ def cmd_restore(lab: Lab, args) -> dict:
         lab.openssl("enc", "-d", "-aes-256-cbc", "-pbkdf2", "-iter", man["kdf_iter"],
                     "-in", backup, "-out", tmp_tar, "-pass", f"file:{pass_file}")
         with tarfile.open(tmp_tar) as tar:
-            for m in tar.getmembers():  # パス逸脱・リンクを拒否
-                if m.name.startswith("/") or ".." in Path(m.name).parts or m.issym() or m.islnk():
-                    raise LabError("BACKUP_UNSAFE", f"不正なパスを含むバックアップです: {m.name}")
+            for m in tar.getmembers():
+                parts = Path(m.name).parts
+                if (m.name.startswith("/") or ".." in parts or m.issym() or m.islnk() or not parts
+                        or parts[0] not in RESTORE_ALLOWED_TOP
+                        or (parts[0] == "server" and len(parts) > 1 and parts[1] != "certs")):
+                    raise LabError("BACKUP_UNSAFE", f"復元できないパスを含むバックアップです: {m.name}")
             tar.extractall(dest, **({"filter": "data"} if hasattr(tarfile, "data_filter") else {}))
     finally:
         tmp_tar.unlink(missing_ok=True)
+    _crash_point("restore-after-extract")
 
-    restored = Lab(dest, lab.actor, "auditor")
     restored.layout()
     # 2. 状態の整合（監査ログ連鎖・台帳・発行物・CRL の照合。復元先には書き込まない）
     chk = run_check(restored)
     report["check"] = chk
     report["state_consistent"] = chk["ok"]
-
-    # 3. 新しさ：別に保管した最新のチェックポイントと比べ、バックアップ後の状態変更が失われないか
-    report.update(check_freshness(lab, dest, Path(args.checkpoint) if args.checkpoint else None))
-
+    # 3. 新しさ：検証できた元のログ・別媒体のチェックポイントと比べ、バックアップ後の状態変更が失われないか
+    report.update(_freshness(lab.home, dest, checkpoint))
     # 4. 別保管のパスフレーズで CA 鍵を開けるか
     root_pass = Path(args.root_pass_file) if args.root_pass_file else lab.root_pass
     issuer_pass = Path(args.issuer_pass_file) if args.issuer_pass_file else lab.issuer_pass
     report["key_access_ready"] = (_key_access(lab, restored.root_key, root_pass)
                                   and _key_access(lab, restored.issuer_key, issuer_pass))
-
-    # 5. 再開は人が承認するまで保留（resume）
-    write_json(restored.hold_marker, {"since": iso(utcnow()), "from": backup.name,
-                                      **{k: report[k] for k in ("archive_integrity_ok", "state_consistent",
-                                                                 "freshness_confirmed", "key_access_ready")}})
-    report["ready"] = all(report[k] for k in ("archive_integrity_ok", "state_consistent",
-                                              "freshness_confirmed", "key_access_ready"))
+    # 5. 保留（HELD）。resume で、その時点の状態をもう一度確かめてから再開する
+    write_json(restored.hold_marker, {**hold, "status": "HELD", "checked_at": iso(utcnow()),
+                                      "backup_audit_seq": man.get("audit_seq"),
+                                      "backup_audit_head": man.get("audit_head"),
+                                      "generation": man.get("generation"),
+                                      **{k: report[k] for k in READY_KEYS}})
+    report["ready"] = all(report[k] for k in READY_KEYS)
     lab.audit_if_possible("restore", "ready" if report["ready"] else "needs_review", str(dest),
-                          **{k: report[k] for k in ("archive_integrity_ok", "state_consistent",
-                                                     "freshness_confirmed", "key_access_ready")})
+                          **{k: report[k] for k in READY_KEYS})
     return report
 
 
 def cmd_resume(lab: Lab, args) -> dict:
-    """復旧保留を解除する。照合・鍵の確認をやり直し、--confirm があるときだけ再開する。"""
+    """復旧保留を解除する。整合・鍵・新しさを「今」もう一度確かめ、元の作業領域の書き込みを
+    ロックで止めたまま新しさを判定し、その場で元の作業領域を置き換え済み（superseded）にする。"""
     lab.require("resume")
     if not lab.on_hold():
         return {"action": "none", "reason": "復旧保留ではありません"}
     hold = read_json(lab.hold_marker)
+    if hold.get("status") != "HELD":
+        return {"action": "held", "blockers": ["restore_incomplete（復元が完了していません。空のディレクトリへ restore をやり直してください）"],
+                "hold": hold}
     for src, dst in ((args.root_pass_file, lab.p("secrets", "root.pass")),
                      (args.issuer_pass_file, lab.p("secrets", "issuer.pass"))):
         if src:
             write_private(dst, Path(src).read_bytes())  # 別経路で保管していた鍵解除情報を戻す
     chk = run_check(lab)
     keys = _key_access(lab, lab.root_key, lab.root_pass) and _key_access(lab, lab.issuer_key, lab.issuer_pass)
-    blockers = []
-    if not chk["ok"]:
-        blockers.append("state_consistent")
-    if not keys:
-        blockers.append("key_access_ready")
-    if not hold.get("freshness_confirmed") and not args.accept_stale:
-        blockers.append("freshness_confirmed（--accept-stale で失われた履歴を受け入れる判断を明示）")
-    if blockers or not args.confirm:
-        return {"action": "held", "blockers": blockers, "confirm_required": not args.confirm, "check": chk}
-    lab.hold_marker.unlink()
-    lab.audit("resume", "ok", "", accepted_stale=bool(args.accept_stale))
-    return {"action": "resumed"}
+    source = Path(args.source).resolve() if args.source else (Path(hold["source_home"]) if hold.get("source_home") else None)
+    checkpoint = Path(args.checkpoint).resolve() if args.checkpoint else \
+        (Path(hold["checkpoint"]) if hold.get("checkpoint") else None)
+    src_lab = Lab(source, lab.actor, "operator") if source and source.exists() and source != lab.home else None
+
+    with contextlib.ExitStack() as stack:
+        if src_lab is not None:
+            # 元の作業領域の発行・失効・記録を止めた状態で判定する（判定直後の失効の取りこぼしを防ぐ）
+            for cm in (src_lab.ca_lock("issuer"), src_lab.ca_lock("root"), src_lab.audit_lock()):
+                stack.enter_context(cm)
+        fresh = _freshness(source if src_lab else None, lab.home, checkpoint)
+        blockers = []
+        if not chk["ok"]:
+            blockers.append("state_consistent")
+        if not keys:
+            blockers.append("key_access_ready")
+        if not fresh["freshness_confirmed"] and not args.accept_stale:
+            blockers.append("freshness_confirmed（--accept-stale で失われた履歴を受け入れる判断を明示）")
+        if src_lab is None and not args.source_stopped:
+            blockers.append("source_not_fenced（元の作業領域に届かないため止められません。止めたことを確認して --source-stopped）")
+        if blockers or not args.confirm:
+            return {"action": "held", "blockers": blockers, "confirm_required": not args.confirm,
+                    "freshness": fresh, "check": chk}
+        if src_lab is not None:
+            write_json(src_lab.superseded_marker, {"since": iso(utcnow()), "by": lab.actor,
+                                                   "replaced_by": str(lab.home), "audit_head": fresh.get("checkpoint_seq")})
+            with contextlib.suppress(Exception):
+                src_lab.incident("SUPERSEDED_BY_RESTORE", replaced_by=str(lab.home))
+        lab.hold_marker.unlink()
+        fsync_dir(lab.hold_marker.parent)
+    lab.audit("resume", "ok", "", accepted_stale=bool(args.accept_stale), source_fenced=src_lab is not None,
+              freshness_confirmed=fresh["freshness_confirmed"])
+    return {"action": "resumed", "source_fenced": src_lab is not None, "freshness": fresh}
 
 
 # =============================================================================
@@ -1994,8 +2427,8 @@ EVENT_MAP = {
     ("crl-issuer", "ok"): "CRL_PUBLISHED",
     ("crl-root", "ok"): "CRL_PUBLISHED",
 }
-SAFE_DETAIL_KEYS = {"code", "san", "reason", "host", "purpose", "crl_check", "not_after",
-                    "next_update", "crl_number", "action", "revoked"}
+SAFE_DETAIL_KEYS = {"code", "san", "reason", "host", "purpose", "not_after", "next_update", "crl_number",
+                    "action", "revoked", "stopped_at", "revocation_observation"}
 
 
 def cmd_export_events(lab: Lab, args) -> dict:
@@ -2014,12 +2447,16 @@ def cmd_export_events(lab: Lab, args) -> dict:
             # 段階（経路・名前・失効…）は個別に計測していない：stages = not_observed
             t = "CERT_VERIFICATION_COMPLETED"
             observation = "aggregate"
-            details["revocation"] = "checked" if e["details"].get("crl_check") else "skipped"
+            # 要求（設定）と観測を分ける。設定が有効でも、実行されたとは限らない
+            details["revocation_requested"] = bool(e["details"].get("crl_check"))
+            details.setdefault("revocation_observation", "not_observed")
             details["stages"] = "not_observed"
         elif e["op"] == "tls-connect":
             t = "TLS_HANDSHAKE_COMPLETED" if e["result"] == "accept" else "TLS_HANDSHAKE_FAILED"
             observation = "aggregate"
-            details["revocation"] = "checked" if e["details"].get("crl_check") else "skipped"
+            details["revocation_requested"] = bool(e["details"].get("crl_check"))
+            details.setdefault("revocation_observation", "not_observed")
+            details["stages"] = "not_observed"
         if not t:
             continue
         events.append({"seq": e["seq"], "ts": e["ts"], "type": t, "role": e["role"],
@@ -2029,7 +2466,9 @@ def cmd_export_events(lab: Lab, args) -> dict:
                        "result": e["result"], "details": details})
     doc = {"schema": "pkilab-events/2", "measured": True,
            "note": "PKI Lab の監査ログ（ハッシュ連鎖を検証済み）から生成。秘密鍵・パスフレーズ・証明書本体は含まない。"
-                   "検証・TLS は処理全体の結果のみで、内部の段階は観測していない。",
+                   "検証・TLS は処理全体の結果のみで、内部の段階は観測していない。"
+                   "revocation_requested は設定、revocation_observation は観測（not_requested / not_executed / "
+                   "reported / not_observed）。",
            "audit_head": res["head"], "generated": iso(utcnow()), "events": events}
     blob = json.dumps(doc, ensure_ascii=False, indent=2) + "\n"
     if "PRIVATE KEY" in blob or "-----BEGIN" in blob:
@@ -2043,6 +2482,9 @@ def cmd_export_events(lab: Lab, args) -> dict:
 def cmd_status(lab: Lab, args) -> dict:
     lab.require("status")
     out = {"home": str(lab.home), "frozen": lab.is_frozen(), "recovery_hold": lab.on_hold(),
+           "superseded": lab.superseded(), "rotation_in_progress": lab.rotation_marker.exists(),
+           "pending_revocations": {w: [e["serial"] for e in pending_revocations(lab, w)] for w in ("root", "issuer")
+                                   if lab.p(w).exists()},
            "ca": lab.ca_state() if lab.p("issuer").exists() else None, "requests": []}
     if lab.issuer_cert.exists():
         out["intermediate_not_after"] = cert_info(lab, lab.issuer_cert)["not_after"]
@@ -2139,6 +2581,10 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "resume":
             sp.add_argument("--confirm", action="store_true")
             sp.add_argument("--accept-stale", action="store_true")
+            sp.add_argument("--source", help="元の作業領域（既定: restore 時の記録）")
+            sp.add_argument("--checkpoint", help="別に保管した最新の anchor.json")
+            sp.add_argument("--source-stopped", action="store_true",
+                            help="元の作業領域に届かない場合に、止めたことを確認済みと明示する")
     return ap
 
 
@@ -2146,8 +2592,16 @@ def run(lab: Lab, cmd: str, args) -> dict:
     fn, _ = COMMANDS[cmd]
     if cmd not in NO_AUDIT_PRECHECK:
         lab.ensure_audit_ok()
-    if cmd in HOLD_BLOCKED and lab.on_hold():
-        raise LabError("RECOVERY_HOLD", "復旧保留中です。照合と鍵の準備を確認し、resume --confirm で再開してください")
+    if cmd in HOLD_BLOCKED:
+        if lab.on_hold():
+            hold = read_json(lab.hold_marker)
+            raise LabError("RECOVERY_HOLD", "復旧保留中です（restore 未完了なら作り直し、完了済みなら resume --confirm）",
+                           hold_status=hold.get("status"))
+        if lab.superseded():
+            raise LabError("SUPERSEDED", "この作業領域は復元先に置き換えられたため、状態を変更できません",
+                           superseded=read_json(lab.superseded_marker))
+        if lab.rotation_marker.exists() and cmd != "init-issuer":
+            raise LabError("ROTATION_IN_PROGRESS", "中間CAの世代交代が途中です（init-issuer --new-generation で再開）")
     return fn(lab, args)
 
 

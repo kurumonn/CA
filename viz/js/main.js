@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import {
   DURATION, SCENES, SCENARIOS, STATIONS, lessonState, parseEvents, sceneIndexAt, scenarioView, captionFor, MAX_EVENTS_BYTES,
+  REVOCATION_OBSERVATIONS,
 } from './lesson.js';
 import { buildWorld, CATALOG } from './world.js';
 
@@ -182,7 +183,7 @@ function loadEventsDoc(text, source) {
     btn.className = /REJECT|REVOKED|FAILED|QUARANTINED/.test(e.type) || ['reject', 'indeterminate'].includes(e.result) ? 'bad' : '';
     const notes = [];
     if (e.details?.code) notes.push(e.details.code);
-    if (e.revocationSkipped) notes.push('失効確認なし');
+    if (e.revocationObservation) notes.push(REVOCATION_OBSERVATIONS[e.revocationObservation]);
     if (e.aggregate) notes.push('処理全体の結果');
     if (!e.measured) notes.push('実測ではない');
     btn.textContent = `#${e.seq} ${e.type}${notes.length ? ' · ' + notes.join(' · ') : ''}`;

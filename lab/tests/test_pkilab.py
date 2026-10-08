@@ -682,7 +682,10 @@ class TestBackupRestore(LabCase):
         b.write_bytes(bytes(data))
         rc, rep = run(self.home, "restore", str(b), str(self.tmp / "restored"))
         self.assertEqual((rc, rep["archive_integrity_ok"], rep["ready"]), (1, False, False))
-        self.assertFalse((self.tmp / "restored").exists())
+        # 展開はしない。復元先には「拒否した」という保留の印だけが残る
+        restored = self.tmp / "restored"
+        self.assertEqual(sorted(p.name for p in restored.iterdir()), ["recovery"])
+        self.assertEqual(pkilab.read_json(restored / "recovery/hold.json")["status"], "REJECTED")
 
     def test_missing_key_passphrase_is_not_ready(self):
         b = self.backup()
@@ -711,7 +714,10 @@ class TestExport(LabCase):
         for banned in ("PATH_VALIDATED", "SAN_CHECKED", "REVOCATION_CHECKED", "TRUST_ANCHOR_SELECTED"):
             self.assertNotIn(banned, types)
         verifies = [e for e in doc["events"] if e["type"] == "CERT_VERIFICATION_COMPLETED"]
-        self.assertEqual([v["details"]["revocation"] for v in verifies], ["checked", "skipped", "checked"])
+        # 要求（設定）と観測を分ける：成功は未観測、--no-crl は要求なし、失効は結果あり
+        self.assertEqual([(v["details"]["revocation_requested"], v["details"]["revocation_observation"])
+                          for v in verifies],
+                         [(True, "not_observed"), (False, "not_requested"), (True, "reported")])
         self.assertTrue(all(v["details"]["stages"] == "not_observed" for v in verifies))
         text = Path(out["events"]).read_text()
         self.assertNotIn("PRIVATE", text)

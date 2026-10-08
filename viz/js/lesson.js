@@ -417,6 +417,13 @@ export function eventScene(e) {
   return EVENT_TO_SCENE[e.type] ?? null;
 }
 
+export const REVOCATION_OBSERVATIONS = {
+  not_requested: '失効確認なし（要求していない）',
+  not_executed: '失効確認まで進まず（名前の確認で停止）',
+  reported: '失効確認の結果あり',
+  not_observed: '失効確認は未観測（処理全体の結果のみ）',
+};
+
 export function parseEvents(doc, byteLength = 0) {
   if (byteLength > MAX_EVENTS_BYTES) throw new Error('ファイルが大きすぎます');
   if (!doc || doc.schema !== 'pkilab-events/2' || !Array.isArray(doc.events)) {
@@ -432,6 +439,8 @@ export function parseEvents(doc, byteLength = 0) {
     scene: eventScene(e),
     measured: docMeasured && e.origin === 'measured',
     aggregate: e.observation === 'aggregate',
-    revocationSkipped: e.details?.revocation === 'skipped',
+    // 失効確認は「要求（設定）」と「観測」を分ける。要求していても実行されたとは限らない
+    revocationRequested: e.details?.revocation_requested === true,
+    revocationObservation: REVOCATION_OBSERVATIONS[e.details?.revocation_observation] ? e.details.revocation_observation : null,
   }));
 }
