@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: OpenSSL version
+        run: openssl version
+      - name: PKI Lab tests
+        run: python3 -m unittest discover -s lab/tests -v
+      - name: End-to-end demo
+        run: PKILAB_DEMO_PORT=18443 PKILAB_KDF_ITER=20000 bash lab/scripts/demo.sh "$RUNNER_TEMP/pkilab"
+
+  viz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Lesson logic tests
+        working-directory: viz
+        run: npm test

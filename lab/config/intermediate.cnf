@@ -1,0 +1,38 @@
+# 中間CA（発行用CA）の OpenSSL 設定（学習用）
+# サーバー証明書の拡張はここではなく profiles/server_localhost.ext から
+# CA 側で生成し、-extfile で渡す（CSR の拡張は使わない）。
+
+[ ca ]
+default_ca = CA_issuer
+
+[ CA_issuer ]
+dir               = $ENV::PKILAB_HOME/issuer
+database          = $dir/db/index.txt
+new_certs_dir     = $dir/newcerts
+certificate       = $dir/certs/intermediate.cert.pem
+private_key       = $dir/private/intermediate.key.pem
+crlnumber         = $dir/db/crlnumber
+rand_serial       = yes
+default_md        = sha256
+policy            = policy_cn_only
+unique_subject    = no
+email_in_dn       = no
+copy_extensions   = none
+default_crl_hours = 24
+crl_extensions    = crl_ext
+name_opt          = ca_default
+cert_opt          = ca_default
+
+[ policy_cn_only ]
+commonName        = supplied
+
+[ req ]
+distinguished_name = req_dn
+prompt             = no
+string_mask        = utf8only
+
+[ req_dn ]
+CN = PKI Lab Issuing CA 1
+
+[ crl_ext ]
+authorityKeyIdentifier = keyid:always

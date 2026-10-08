@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>信頼のアトリエ — CA の発行・検証・失効を3Dで見る</title>
+  <meta name="description" content="自分だけの認証局（ルートCA・中間CA）が証明書を発行し、ブラウザが検証し、失効した証明書を拒否するまでを three.js の3Dアニメーションで解説します。">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./vendor/three/three.module.js",
+      "three/addons/": "./vendor/three/addons/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <main class="app">
+    <section class="stage" aria-label="3D 学習空間">
+      <canvas id="scene"></canvas>
+      <div id="fallback" class="fallback" hidden>
+        <p><b>3D を表示できませんでした。</b><br>WebGL に対応したブラウザで開いてください。静止画が出ていても、3D の動作確認にはなりません。</p>
+      </div>
+      <div class="badge" title="この再生は説明用のシミュレーションです。実測は右の「実測イベント」から読み込みます。">説明用シミュレーション</div>
+      <div id="result" class="result" hidden></div>
+
+      <div class="caption">
+        <div class="caption-head">
+          <span id="sceneNo" class="scene-no"></span>
+          <button id="detailToggle" type="button" class="link">詳しく</button>
+        </div>
+        <h1 id="sceneTitle"></h1>
+        <p id="sceneShort"></p>
+        <p id="detail" class="detail" hidden></p>
+      </div>
+
+      <div class="controls">
+        <button id="play" type="button" class="primary">一時停止</button>
+        <button id="restart" type="button" aria-label="最初から">⟲</button>
+        <input id="seek" type="range" min="0" max="180" step="0.1" value="0" aria-label="再生位置">
+        <span id="time" class="time">0:00 / 3:00</span>
+        <select id="speed" aria-label="再生速度">
+          <option value="0.5">0.5×</option>
+          <option value="1" selected>1×</option>
+          <option value="2">2×</option>
+          <option value="4">4×</option>
+        </select>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div class="block">
+        <label class="lbl" for="scenario">条件を切り替える</label>
+        <select id="scenario"></select>
+        <label class="check"><input id="autocam" type="checkbox" checked> カメラを場面に合わせる</label>
+        <div class="cams">
+          <button type="button" data-cam="overview">全体</button>
+          <button type="button" data-cam="rootVault">ルートCA</button>
+          <button type="button" data-cam="intermediate">中間CA</button>
+          <button type="button" data-cam="ra">RA</button>
+          <button type="button" data-cam="server">サーバー</button>
+          <button type="button" data-cam="trustStore">信頼ストア</button>
+          <button type="button" data-cam="gates">検証ゲート</button>
+          <button type="button" data-cam="crl">CRL</button>
+          <button type="button" data-cam="ocsp">OCSP</button>
+          <button type="button" data-cam="audit">監査</button>
+        </div>
+      </div>
+
+      <details class="block" open>
+        <summary>場面（18）</summary>
+        <ol id="chapters" class="chapters"></ol>
+      </details>
+
+      <details class="block">
+        <summary>実測イベント（PKI Lab）</summary>
+        <p class="note">lab の <code>pkilab.py export-events</code> が出力した JSON を読み込むと、実際に起きた処理の場面に「実測」印が付きます。秘密鍵や証明書本体は含まれません。</p>
+        <div class="row">
+          <input id="eventsFile" type="file" accept="application/json,.json" aria-label="イベントJSONを選ぶ">
+          <button id="eventsSample" type="button">サンプルを読む</button>
+        </div>
+        <p id="eventsStatus" class="note"></p>
+        <ol id="events" class="events"></ol>
+      </details>
+
+      <details class="block">
+        <summary>3D モデル一覧</summary>
+        <ul id="catalog" class="catalog"></ul>
+      </details>
+
+      <details class="block">
+        <summary>凡例と注意</summary>
+        <ul class="legend">
+          <li><i class="sw gold"></i>金の鍵＝秘密鍵（象徴。どの場面でも移動しない）</li>
+          <li><i class="sw blue"></i>青い多面体＝公開鍵</li>
+          <li><i class="sw red"></i>赤カード＝ルートCA証明書（利用者が別経路で受け取る）</li>
+          <li><i class="sw amber"></i>橙カード＝中間CA証明書</li>
+          <li><i class="sw sky"></i>青カード＝サーバー証明書（葉）</li>
+          <li><i class="sw violet"></i>紫ボード＝CRL（失効リスト）</li>
+        </ul>
+        <p class="note">押印は電子署名のたとえで、証明書を暗号化する処理ではありません。検証ゲートは端末内部の確認を拡大した比喩で、並び順は実装の実行順と一致するとは限りません。</p>
+      </details>
+    </aside>
+  </main>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
