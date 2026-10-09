@@ -1,0 +1,29 @@
+name: Source snapshot
+on:
+  push:
+    branches: [astra/ca-r4-atlas]
+    paths: [.github/workflows/source-snapshot.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Export only tracked source at the review baseline
+        run: |
+          test "$(git rev-parse HEAD:lab/pkilab.py)" = "35dc3d13119de97aaa7a741b804f3a9653f77e4b"
+          mkdir -p "$RUNNER_TEMP/snapshot"
+          git archive --format=zip --output="$RUNNER_TEMP/snapshot/CA-source.zip" HEAD
+          git ls-tree -r HEAD > "$RUNNER_TEMP/snapshot/git-tree.txt"
+          git rev-parse HEAD > "$RUNNER_TEMP/snapshot/commit.txt"
+          sha256sum "$RUNNER_TEMP/snapshot/CA-source.zip" > "$RUNNER_TEMP/snapshot/SHA256SUMS.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ca-tracked-source-1485180
+          path: ${{ runner.temp }}/snapshot/
+          retention-days: 3
+          if-no-files-found: error
