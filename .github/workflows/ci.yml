@@ -57,3 +57,38 @@ jobs:
         with:
           name: viz-screenshots
           path: ${{ runner.temp }}/screenshots
+
+  atlas:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install geometry check dependency
+        run: python -m pip install numpy==2.3.5
+      - name: Validate all 80 GLBs and shared PBR references
+        run: python tools/check_atlas.py --report "$RUNNER_TEMP/atlas-validation.json"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Browser dependencies
+        working-directory: viz
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Atlas lesson and model viewer
+        run: |
+          python -m http.server 8765 --bind 127.0.0.1 --directory viz &
+          SERVER=$!
+          trap 'kill "$SERVER" 2>/dev/null || true' EXIT
+          sleep 1
+          node viz/tests/atlas-render-check.mjs http://127.0.0.1:8765/ "$RUNNER_TEMP/atlas-screenshots"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-checks
+          path: |
+            ${{ runner.temp }}/atlas-validation.json
+            ${{ runner.temp }}/atlas-screenshots/
