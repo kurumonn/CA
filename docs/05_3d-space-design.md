@@ -116,3 +116,12 @@ GLB を統合する場合は、モデル ID・寸法・材質・可動部・LOD�
 
 - 全体表示で約11万三角形・約600 draw call は、作者環境の Chromium / SwiftShader で `renderer.info` から読んだ値で、独立した測定ではない。
 - 日本語ラベルは閲覧環境のフォントで描く。
+
+
+## 8. 失効要求と完了の表示（Round 4）
+
+`REVOCATION_REQUESTED` は要求が記録された事実であり、公開CRLへの反映完了を意味しない。`CERT_REVOKED` と `INTERMEDIATE_REVOKED` は監査の `revoke-completed` から作る。これらは同じ説明章へリンクしても別のイベント名を維持する。
+
+検証の設定は `revocation_requested`、観測は `revocation_observation` の4値で説明する。`not_observed` を成功や未実行と決めつけない。読み込んだログは説明章への関連付けであり、3Dアニメの全動作を実測トレースとして再生する機能ではない。
+
+F16：以前のGLB・LODセットは本ブランチに未統合。コード生成教材の修正、過去のGLBの存在確認、AAA美術品質の受入れは別工程。完成扱いにしない。

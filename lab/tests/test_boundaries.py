@@ -55,7 +55,9 @@ class TestFreshness(LabCase):
         rewrite_ops_without_rehash(self.home, backup_seq + 1, "verify")  # 失効を「読み取り専用」に見せかける
         rc, rep = run(self.home, "restore", b, str(self.tmp / "r"))
         self.assertFalse(rep["freshness_confirmed"], rep)
-        self.assertEqual(rep.get("source_audit"), "AUDIT_TAMPERED")
+        self.assertEqual(rep["checks"]["source"].get("source_audit"), "AUDIT_TAMPERED")
+        self.assertFalse(rep["checks"]["state"]["freshness_confirmed"])
+        self.assertTrue(rep["checks"]["state"]["state_differs"])
         self.assertEqual(rc, 1)
 
     def test_frozen_source_is_not_evidence_of_freshness(self):
@@ -99,13 +101,21 @@ class TestFreshness(LabCase):
         b = self.backup()
         dest = self.tmp / "r"
         run(self.home, "restore", b, str(dest))
+        # Explicitly naming a nonexistent source is an error, not an escape hatch.
         missing = str(self.tmp / "gone")
-        rc, out = run(dest, "resume", "--confirm", "--source", missing, *secrets_args(self.home))
-        self.assertEqual(out["action"], "held")
-        self.assertTrue(any(x.startswith("source_not_fenced") for x in out["blockers"]), out)
-        rc, out = run(dest, "resume", "--confirm", "--source", missing, "--source-stopped", "--accept-stale",
-                      *secrets_args(self.home))
-        self.assertEqual((out["action"], out["source_fenced"]), ("resumed", False), out)
+        rc, out = run(dest, "resume", "--confirm", "--source", missing,
+                      "--source-stopped", "--accept-stale", *secrets_args(self.home))
+        self.assertEqual((rc, out["action"]), (1, "held"), out)
+        self.assertTrue(any(x.startswith("source_unavailable") for x in out["blockers"]), out)
+        # Simulate actual loss of the recorded source. Keep the key-unlock files on a separate medium.
+        offline = self.tmp / "offline-source"
+        self.home.rename(offline)
+        keys = secrets_args(offline)
+        for flags in ([], ["--source-stopped"], ["--accept-stale"]):
+            rc, out = run(dest, "resume", "--confirm", *flags, *keys)
+            self.assertEqual((rc, out["action"]), (1, "held"), out)
+        rc, out = run(dest, "resume", "--confirm", "--source-stopped", "--accept-stale", *keys)
+        self.assertEqual((rc, out["action"], out["source_fenced"]), (0, "resumed", False), out)
 
     def test_external_checkpoint_detects_rehashed_source_log(self):
         """ログと基準ハッシュの両方を書き換えられても、別媒体のチェックポイントで検出する。"""

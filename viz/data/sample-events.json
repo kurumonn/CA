@@ -2,38 +2,38 @@
   "schema": "pkilab-events/2",
   "measured": true,
   "note": "PKI Lab の監査ログ（ハッシュ連鎖を検証済み）から生成。秘密鍵・パスフレーズ・証明書本体は含まない。検証・TLS は処理全体の結果のみで、内部の段階は観測していない。revocation_requested は設定、revocation_observation は観測（not_requested / not_executed / reported / not_observed）。",
-  "audit_head": "d1bf0c0cb6b5336381bab6f9d8580bff5fdf90e605fceb9283616885d61c4a65",
-  "generated": "2026-10-08T22:03:52Z",
+  "audit_head": "76fd5a2dac5063dd2c00b26ccd9aad491703a6a4157e73d9a56d7eecd674be53",
+  "generated": "2026-10-09T12:32:55Z",
   "events": [
     {
       "seq": 1,
-      "ts": "2026-10-08T22:03:48Z",
+      "ts": "2026-10-09T12:32:33Z",
       "type": "ROOT_CREATED",
       "role": "root-admin",
       "origin": "measured",
       "observation": "operation",
-      "target": "af0e21b86638",
+      "target": "691cdb123f23",
       "result": "ok",
       "details": {
-        "not_after": "2031-10-07T22:03:48Z"
-      }
-    },
-    {
-      "seq": 3,
-      "ts": "2026-10-08T22:03:48Z",
-      "type": "INTERMEDIATE_DELEGATED",
-      "role": "root-admin",
-      "origin": "measured",
-      "observation": "operation",
-      "target": "f4b1500b44f7",
-      "result": "ok",
-      "details": {
-        "not_after": "2027-10-08T22:03:48Z"
+        "not_after": "2031-10-08T12:32:33Z"
       }
     },
     {
       "seq": 4,
-      "ts": "2026-10-08T22:03:48Z",
+      "ts": "2026-10-09T12:32:33Z",
+      "type": "INTERMEDIATE_DELEGATED",
+      "role": "root-admin",
+      "origin": "measured",
+      "observation": "operation",
+      "target": "5d5b60d0ad3d",
+      "result": "ok",
+      "details": {
+        "not_after": "2027-10-09T12:32:33Z"
+      }
+    },
+    {
+      "seq": 5,
+      "ts": "2026-10-09T12:32:33Z",
       "type": "CRL_PUBLISHED",
       "role": "root-admin",
       "origin": "measured",
@@ -42,13 +42,13 @@
       "result": "ok",
       "details": {
         "crl_number": 4096,
-        "next_update": "2026-11-07T22:03:48Z",
+        "next_update": "2026-11-08T12:32:33Z",
         "revoked": 0
       }
     },
     {
-      "seq": 5,
-      "ts": "2026-10-08T22:03:48Z",
+      "seq": 6,
+      "ts": "2026-10-09T12:32:33Z",
       "type": "CRL_PUBLISHED",
       "role": "issuer",
       "origin": "measured",
@@ -57,40 +57,40 @@
       "result": "ok",
       "details": {
         "crl_number": 4096,
-        "next_update": "2026-10-09T22:03:48Z",
+        "next_update": "2026-10-10T12:32:33Z",
         "revoked": 0
       }
     },
     {
-      "seq": 6,
-      "ts": "2026-10-08T22:03:48Z",
-      "type": "CSR_CREATED",
-      "role": "server-admin",
-      "origin": "measured",
-      "observation": "operation",
-      "target": "396885c41e5c",
-      "result": "ok",
-      "details": {}
-    },
-    {
       "seq": 7,
-      "ts": "2026-10-08T22:03:48Z",
+      "ts": "2026-10-09T12:32:34Z",
       "type": "CSR_CREATED",
       "role": "server-admin",
       "origin": "measured",
       "observation": "operation",
-      "target": "6e35629eba4a",
+      "target": "051da8276579",
       "result": "ok",
       "details": {}
     },
     {
       "seq": 8,
-      "ts": "2026-10-08T22:03:49Z",
+      "ts": "2026-10-09T12:32:35Z",
+      "type": "CSR_CREATED",
+      "role": "server-admin",
+      "origin": "measured",
+      "observation": "operation",
+      "target": "aa5ea6f9e12b",
+      "result": "ok",
+      "details": {}
+    },
+    {
+      "seq": 9,
+      "ts": "2026-10-09T12:32:36Z",
       "type": "REQUEST_REJECTED",
       "role": "ra",
       "origin": "measured",
       "observation": "operation",
-      "target": "6e35629eba4a",
+      "target": "aa5ea6f9e12b",
       "result": "rejected",
       "details": {
         "code": "SAN_NOT_ALLOWED",
@@ -98,29 +98,13 @@
       }
     },
     {
-      "seq": 9,
-      "ts": "2026-10-08T22:03:49Z",
+      "seq": 10,
+      "ts": "2026-10-09T12:32:38Z",
       "type": "CSR_SIGNATURE_CHECKED",
       "role": "ra",
       "origin": "measured",
       "observation": "operation",
-      "target": "396885c41e5c",
-      "result": "ok",
-      "details": {
-        "san": [
-          "DNS:localhost",
-          "IP:127.0.0.1"
-        ]
-      }
-    },
-    {
-      "seq": 10,
-      "ts": "2026-10-08T22:03:49Z",
-      "type": "REQUEST_AUTHORIZED",
-      "role": "ra",
-      "origin": "measured",
-      "observation": "operation",
-      "target": "396885c41e5c",
+      "target": "051da8276579",
       "result": "ok",
       "details": {
         "san": [
@@ -131,40 +115,56 @@
     },
     {
       "seq": 11,
-      "ts": "2026-10-08T22:03:49Z",
+      "ts": "2026-10-09T12:32:38Z",
+      "type": "REQUEST_AUTHORIZED",
+      "role": "ra",
+      "origin": "measured",
+      "observation": "operation",
+      "target": "051da8276579",
+      "result": "ok",
+      "details": {
+        "san": [
+          "DNS:localhost",
+          "IP:127.0.0.1"
+        ]
+      }
+    },
+    {
+      "seq": 13,
+      "ts": "2026-10-09T12:32:39Z",
       "type": "CERT_ISSUED",
       "role": "issuer",
       "origin": "measured",
       "observation": "operation",
-      "target": "396885c41e5c",
+      "target": "051da8276579",
       "result": "ok",
       "details": {
         "san": [
           "DNS:localhost",
           "IP:127.0.0.1"
         ],
-        "not_after": "2026-11-07T22:03:49Z"
+        "not_after": "2026-11-08T12:32:39Z"
       }
     },
     {
-      "seq": 12,
-      "ts": "2026-10-08T22:03:50Z",
+      "seq": 14,
+      "ts": "2026-10-09T12:32:40Z",
       "type": "CERT_DEPLOYED",
       "role": "issuer",
       "origin": "measured",
       "observation": "operation",
-      "target": "396885c41e5c",
+      "target": "051da8276579",
       "result": "ok",
       "details": {}
     },
     {
-      "seq": 13,
-      "ts": "2026-10-08T22:03:50Z",
+      "seq": 15,
+      "ts": "2026-10-09T12:32:41Z",
       "type": "CERT_VERIFICATION_COMPLETED",
       "role": "verifier",
       "origin": "measured",
       "observation": "aggregate",
-      "target": "792d4d2d7edd",
+      "target": "2349d1177f02",
       "result": "accept",
       "details": {
         "code": "OK",
@@ -177,13 +177,13 @@
       }
     },
     {
-      "seq": 14,
-      "ts": "2026-10-08T22:03:50Z",
+      "seq": 16,
+      "ts": "2026-10-09T12:32:42Z",
       "type": "CERT_VERIFICATION_COMPLETED",
       "role": "verifier",
       "origin": "measured",
       "observation": "aggregate",
-      "target": "792d4d2d7edd",
+      "target": "2349d1177f02",
       "result": "reject",
       "details": {
         "code": "SAN_MISMATCH",
@@ -196,13 +196,13 @@
       }
     },
     {
-      "seq": 16,
-      "ts": "2026-10-08T22:03:50Z",
+      "seq": 18,
+      "ts": "2026-10-09T12:32:46Z",
       "type": "TLS_HANDSHAKE_COMPLETED",
       "role": "verifier",
       "origin": "measured",
       "observation": "aggregate",
-      "target": "f4e64ec2159b",
+      "target": "c2c9dd4d479c",
       "result": "accept",
       "details": {
         "code": "OK",
@@ -212,8 +212,22 @@
       }
     },
     {
-      "seq": 17,
-      "ts": "2026-10-08T22:03:51Z",
+      "seq": 19,
+      "ts": "2026-10-09T12:32:47Z",
+      "type": "REVOCATION_REQUESTED",
+      "role": "issuer",
+      "origin": "measured",
+      "observation": "operation",
+      "target": "2349d1177f02",
+      "result": "ok",
+      "details": {
+        "which": "issuer",
+        "reason": "keyCompromise"
+      }
+    },
+    {
+      "seq": 20,
+      "ts": "2026-10-09T12:32:47Z",
       "type": "CRL_PUBLISHED",
       "role": "issuer",
       "origin": "measured",
@@ -222,31 +236,33 @@
       "result": "ok",
       "details": {
         "crl_number": 4097,
-        "next_update": "2026-10-09T22:03:51Z",
+        "next_update": "2026-10-10T12:32:47Z",
         "revoked": 1
       }
     },
     {
-      "seq": 18,
-      "ts": "2026-10-08T22:03:51Z",
+      "seq": 21,
+      "ts": "2026-10-09T12:32:47Z",
       "type": "CERT_REVOKED",
       "role": "issuer",
       "origin": "measured",
       "observation": "operation",
-      "target": "792d4d2d7edd",
+      "target": "2349d1177f02",
       "result": "ok",
       "details": {
-        "reason": "keyCompromise"
+        "which": "issuer",
+        "reason": "keyCompromise",
+        "crl_number": 4097
       }
     },
     {
-      "seq": 19,
-      "ts": "2026-10-08T22:03:51Z",
+      "seq": 22,
+      "ts": "2026-10-09T12:32:49Z",
       "type": "TLS_HANDSHAKE_FAILED",
       "role": "verifier",
       "origin": "measured",
       "observation": "aggregate",
-      "target": "f4e64ec2159b",
+      "target": "c2c9dd4d479c",
       "result": "reject",
       "details": {
         "code": "REVOKED",
@@ -256,13 +272,13 @@
       }
     },
     {
-      "seq": 20,
-      "ts": "2026-10-08T22:03:51Z",
+      "seq": 23,
+      "ts": "2026-10-09T12:32:50Z",
       "type": "TLS_HANDSHAKE_COMPLETED",
       "role": "verifier",
       "origin": "measured",
       "observation": "aggregate",
-      "target": "f4e64ec2159b",
+      "target": "c2c9dd4d479c",
       "result": "accept",
       "details": {
         "code": "OK",

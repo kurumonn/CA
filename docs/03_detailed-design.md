@@ -6,7 +6,7 @@
 
 ```
 root/{private,certs,db,newcerts,crl}         ルートCA（本来は Root VM）
-issuer/{private,certs,db,newcerts,crl,lock}  中間CA（現在の世代）
+issuer/{private,certs,db,newcerts,crl}  中間CA（現在の世代）
 issuer/state.json                            中間CAの運用状態と世代
 archive/issuer-gen<N>/                       失効・廃止した旧世代（署名には使わない）
 requests/REQ-*/{request.csr.pem,state.json,cert.json}
@@ -75,7 +75,7 @@ OpenSSL の台帳（`index.txt` 等）の複数ファイル更新は単一トラ
 
 ## 6. 発行処理（`cmd_issue`）
 
-1. `issuer/lock/ca.lock` を `flock`（`PKILAB_LOCK_TIMEOUT` 秒で `LOCK_BUSY`）
+1. `locks/issuer.lock` を `flock`（`PKILAB_LOCK_TIMEOUT` 秒で `LOCK_BUSY`）
 2. 状態確認
    - PUBLISHED：配置物のハッシュが発行記録と一致するか確かめて返す（違えば台帳の証明書から再配置）
    - ISSUED：**再署名せず**、配置だけを再開する
@@ -146,10 +146,10 @@ openssl verify -show_chain -x509_strict -auth_level 2 -verify_depth 1 \
 
 各行: `seq, ts, actor, role, op, result, target, details, prev, hash`。`hash = SHA-256(正規化 JSON（hash を除く）)`、`prev` は直前の hash。
 
-- **排他**：すべての追記は監査専用ロック（`audit/.lock`）の中で「末尾と基準ハッシュの一致確認 → 追記（fsync）→ 基準ハッシュ更新」を一度に行う。ロックの取得順は issuer → root → audit
+- **排他**：すべての追記は監査専用ロック（`locks/audit.lock`）の中で「末尾と基準ハッシュの一致確認 → 追記（fsync）→ 基準ハッシュ更新」を一度に行う。ロックの取得順は issuer → root → requests → audit
 - **凍結**：コマンド実行前（読み取り・管理操作を除く）に全行の連鎖と基準ハッシュを検証する。追記前の確認で末尾が基準と一致しない場合も同じ。異常なら `audit/FROZEN.json` を作り、障害は `incidents/` に記録し、**監査ログと基準ハッシュは変更しない**。以後の操作は `AUDIT_FROZEN` で止まる
 - `check` / `restore` の結果は、監査ログが正常なときだけ追記し、異常時は障害ログへ書く（異常を検出した操作が基準を更新しない）
-- **管理された再アンカー**：`audit-reanchor --confirm-head <現在の先頭> --reason ...`。内部の連鎖が正しいログ（末尾削除など）に限り、失われた履歴を受け入れる判断を障害ログに残してから基準を付け替え、凍結を解く。連鎖自体が壊れたログは `restore` で戻す
+- **管理された再アンカー**：`audit-reanchor --confirm-head <現在の末尾> --reason ...`。内部の連鎖が正しいログ（末尾削除など）に限り、失われた履歴を受け入れる判断を障害ログに残してから基準を付け替え、凍結を解く。連鎖自体が壊れたログは `restore` で戻す
 - 秘密鍵・パスフレーズ・セッション鍵は記録しない
 - 制約：ログと基準ハッシュは同じ機械にある。両方の同時置換を検出するには、別媒体のチェックポイント（`restore --checkpoint`）が必要
 
@@ -157,7 +157,7 @@ openssl verify -show_chain -x509_strict -auth_level 2 -verify_depth 1 \
 
 | 対象 | 確認内容 |
 |---|---|
-| 必須ファイル | ルート証明書・中間CA証明書・両台帳。公開 CRL の欠落は失効0件でも異常 |
+| 必須ファイル | ルート証明書・中間CA証明書・両台帳。CRL欠落は失効0件でも `ok:false`、復旧可能な `actions` に記載 |
 | ルート台帳 | 各行の発行物を解析し、シリアル・発行者を照合。中間CA証明書がルートの発行物と同一か |
 | 中間CA台帳（世代ごと） | 各行の発行物を解析（壊れた証明書は異常）、シリアル・発行者、台帳外の発行物 |
 | 申請 | ISSUED / PUBLISHED に承認と発行記録があり、発行物の DER ハッシュ・SAN・公開鍵・用途が一致、配置物のハッシュが一致 |
@@ -166,20 +166,22 @@ openssl verify -show_chain -x509_strict -auth_level 2 -verify_depth 1 \
 
 ## 13. バックアップと復旧
 
-**バックアップ**：root・issuer・archive・requests・approvals・journal・audit・anchor・incidents・public・server/certs を tar.gz にし、AES-256-CBC（PBKDF2）で暗号化。暗号化後のデータに HMAC-SHA256（バックアップ用パスフレーズから PBKDF2 で導出した鍵）を付け、マニフェスト（ハッシュ・HMAC・監査の連番と先頭）を書く。`secrets/` と `server/private/` は含めない（別経路で保管する前提）。
+**バックアップ**：root・issuer・archive・requests・approvals・journal・audit・anchor・incidents・public・server/certs を tar.gz にし、AES-256-CBC（PBKDF2）で暗号化。マニフェストの正規化JSONと暗号化後のデータの両方に HMAC-SHA256（バックアップ用パスフレーズから PBKDF2 で導出した鍵）を付け、マニフェスト（ハッシュ・HMAC・監査の連番と末尾）を書く。`secrets/` と `server/private/` は含めない（別経路で保管する前提）。
 
 **復元**：空の隔離ディレクトリにだけ展開し、次の項目を**分けて**判定する。
 
 | 項目 | 内容 |
 |---|---|
 | `archive_integrity_ok` | 復号**前**に HMAC を検証（改ざん・パスフレーズ違いなら展開しない） |
-| `state_consistent` | 復元先で照合（§12）。復元先には書き込まない |
+| `state_consistent` | 復元先の `check.integrity_ok`。一時的な復旧作業は `actions_after_resume` に分離する |
 | `freshness_confirmed` | 別に保管した最新チェックポイント（既定は元の作業領域の anchor）を復元ログが含むか。元のログが読める場合、バックアップ後の差分が読み取り専用の操作（verify・backup 等）だけなら新しいとみなし、失効などの状態変更が含まれていれば `lost_changes` を返して不合格 |
 | `key_access_ready` | 別保管のパスフレーズで両CA鍵を開けるか |
 | `resume_authorized` | 常に false。復元先は `recovery/hold.json` により発行・CRL 公開・申請などが `RECOVERY_HOLD` で止まる |
 
 `ready` は上の4項目がすべて真のときだけ真で、偽なら終了コード 1。
-`resume --confirm [--root-pass-file ... --issuer-pass-file ...]` は、鍵解除情報を戻し、照合と鍵の確認をやり直してから保留を解く。新しさが確認できない場合は `--accept-stale`（失われた履歴を受け入れる判断）を明示しない限り再開しない。
+`resume` は元の作業領域を `source_instance` で照合し、発行・失効・申請・監査のロックを取ったまま鮮度を再確認する。成功時は元を `SUPERSEDED` にして書込みを禁止する。復元先の同時再開は `locks/resume.lock` で直列化する。元を停止した直後に中断した場合も、鍵と整合性を再検査してから解除する。
+
+元が本当に利用不能の場合に限り、既定の復元元が存在しない状態で `--source-stopped --accept-stale --confirm` により明示的な例外判断ができる。存在しない場所を `--source` で明示した場合や識別子が違う場合は、例外フラグでも解除しない。`--accept-stale` は失効履歴の喪失を安全に修復する機能ではない。通常運用には推奨しない。
 
 台帳が壊れたときに空の `index.txt` を作って旧 CA 鍵で発行を再開することは禁止する（失効状態が消え、失効済み証明書が有効に戻るため）。状態を確定できない場合は旧世代を廃止し、新しい世代（§5）へ移行する。
 
@@ -196,8 +198,8 @@ openssl verify -show_chain -x509_strict -auth_level 2 -verify_depth 1 \
 監査ログの連鎖を検証してから出力する（壊れていれば出力しない）。
 
 - 観測した粒度のまま出す。`verify` は `CERT_VERIFICATION_COMPLETED`、TLS は `TLS_HANDSHAKE_COMPLETED` / `TLS_HANDSHAKE_FAILED` の**集約イベント**（`observation: "aggregate"`）1件だけ
-- 段階（経路・名前・失効…）は個別に計測していないので `details.stages = "not_observed"`。失効確認の有無は `details.revocation = "checked" | "skipped"`
-- 各イベントに `origin: "measured"`、文書に `measured: true` と、監査ログの先頭ハッシュ
+- 段階（経路・名前・失効…）は個別に計測していないので `details.stages = "not_observed"`。設定は `details.revocation_requested`、観測は `details.revocation_observation`（`not_requested` / `not_executed` / `reported` / `not_observed`）。`checked` / `skipped` は旧仕様であり、新Exporterは生成しない
+- 各イベントに `origin: "measured"`、文書に `measured: true` と、監査ログの末尾ハッシュ
 - `target` は SHA-256 の先頭12桁、`details` は許可したキーだけ。出力に `PRIVATE KEY` / `-----BEGIN` が含まれたら出力しない
 
 3D 側（`viz/js/lesson.js` の `parseEvents`）は、文書の `measured === true`（真偽値）かつイベントの `origin === "measured"` のものだけを「実測」と表示する。ファイルが本当にラボで生成されたかの真正性はブラウザでは検証していない。
@@ -210,3 +212,25 @@ openssl verify -show_chain -x509_strict -auth_level 2 -verify_depth 1 \
 | 1 | 検証の拒否・判定不能、照合の異常、復元の準備未完了、再開保留 |
 | 2 | 業務上の拒否（`LabError`。JSON に `error` コード） |
 | 3 | 環境エラー（想定外の例外。JSON に `ENV_ERROR`） |
+
+
+## 17. Round 4の契約（2026-10-09）
+
+詳細手順の正本は [運用・復旧手順書](06_operations.md)。旧版からの変更は次のとおり。
+
+- `check.ok` は `problems` と `actions` の両方が空の場合のみ真。`integrity_ok` は `problems` が空の場合のみ真。CRL欠落・期限切れを修復作業へ分類しても、検証クライアントは失効情報を確認できない限り接続を許可しない。
+- `_freshness.checks.state` は台帳・未完了失効・CA状態・申請状態などの指紋比較。`checks.source` は検証済み元ログ、`checks.external` は指定した外部チェックポイント。元ログの改変理由は `checks.source.source_audit` に入る。指紋だけで監査の真正性が証明されるわけではない。
+- 復元開始時に `RESTORING` を先に保存する。展開後に停止しても運用を許可しない。正常な復元後は `HELD`。`ready:true` でも再開承認前の運用は禁止。
+- 失効は「永続pending → 監査の要求記録 → 台帳 → 内部CRL → 公開・読み戻し確認 → 完了記録」。台帳は前二つが成功するまで変更しない。要求の監査追記でI/O障害が起きてもpendingを保持し、再試行で追記する。要求記録は `request_id` によるat-least-onceであり、監査記録のexactly-onceは保証しない。
+- `revoke-requested` は `REVOCATION_REQUESTED`、`revoke-completed` は発行CAがissuerなら `CERT_REVOKED`、rootなら `INTERMEDIATE_REVOKED`。未知の発行CAは推測せずExporterを拒否する。公開失敗中は完了イベントを出さない。
+- Exporterは監査ロック内で検証した同一スナップショットだけを出力し、その末尾ハッシュを付ける。ブラウザはハッシュの外部真正性を検証しない。
+- 正しく署名済みの証明書を、CRLの一時的欠落だけで隔離・失効させない。`ISSUER_NOT_READY` として待ち、修復後に同じ証明書を配置する。恒久的な署名・期限・用途・失効異常との判定を分離する。
+
+## 18. 一次資料
+
+- [OpenSSL CAコマンドの制約と運用](https://docs.openssl.org/3.5/man1/openssl-ca/) — https://docs.openssl.org/3.5/man1/openssl-ca/
+- [OpenSSL検証オプション](https://docs.openssl.org/3.5/man1/openssl-verification-options/) — https://docs.openssl.org/3.5/man1/openssl-verification-options/
+- [Python ssl](https://docs.python.org/3/library/ssl.html) — https://docs.python.org/3/library/ssl.html
+- [RFC 5280](https://www.rfc-editor.org/rfc/rfc5280) — https://www.rfc-editor.org/rfc/rfc5280
+
+参照確認日：2026-10-09。ここで定める復旧状態・ロック・イベント契約は本ラボ独自の仕様であり、RFCの要求事項そのものではない。

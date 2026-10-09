@@ -1750,10 +1750,25 @@ def _request_revocation(lab: Lab, which: str, serial: str, reason: str) -> None:
     entries = pending_revocations(lab, which)
     if any(e["serial"] == serial for e in entries):
         return
-    lab.audit("revoke-requested", "ok", serial, which=which, reason=reason)
     entries.append({"serial": serial, "reason": reason, "requested_at": iso(utcnow()),
-                    "by": lab.actor, "stage": "requested"})
+                    "by": lab.actor, "stage": "requested", "request_id": secrets.token_hex(16),
+                    "audit_requested": False})
     _save_pending(lab, which, entries)
+    _audit_revocation_intents(lab, which, entries)
+
+
+def _audit_revocation_intents(lab: Lab, which: str, entries: list[dict]) -> None:
+    """Persisted intents survive failure before audit append. Replay is at-least-once by request_id."""
+    for entry in entries:
+        if entry.get("audit_requested"):
+            continue
+        entry.setdefault("request_id", secrets.token_hex(16))
+        # Save the correlation id before append, including legacy pending entries.
+        _save_pending(lab, which, entries)
+        lab.audit("revoke-requested", "ok", entry["serial"], which=which, reason=entry["reason"],
+                  request_id=entry["request_id"])
+        entry["audit_requested"] = True
+        _save_pending(lab, which, entries)
 
 
 def _revoke_and_publish(lab: Lab, which: str, serial: str, reason: str) -> dict:
@@ -1787,6 +1802,7 @@ def _finish_pending(lab: Lab, which: str) -> dict:
     cnf, pw = (ROOT_CNF, lab.root_pass) if which == "root" else (ISSUER_CNF, lab.issuer_pass)
     base = lab.p(which)
     try:
+        _audit_revocation_intents(lab, which, entries)
         rows = {r["serial"]: r for r in read_index(base)}
         kept = []
         for e in entries:
@@ -1829,7 +1845,8 @@ def _finish_pending(lab: Lab, which: str) -> dict:
         if st["status"] == "SUSPENDED" and st.get("pending_revocation"):
             lab.set_ca_state("ACTIVE", "pending revocation completed", pending_revocation=None)
     for e in entries:
-        lab.audit("revoke-completed", "ok", e["serial"], which=which, reason=e["reason"], crl_number=meta["number"])
+        lab.audit("revoke-completed", "ok", e["serial"], which=which, reason=e["reason"],
+                  crl_number=meta["number"], request_id=e.get("request_id"))
     _save_pending(lab, which, [])
     if which == "issuer":
         _mark_quarantine_revocations(lab, set(serials), "done")
@@ -2815,6 +2832,13 @@ def cmd_restore(lab: Lab, args) -> dict:
 
 
 def cmd_resume(lab: Lab, args) -> dict:
+    """同じ復元先の再開操作を直列化する。元のCAとの排他は内部処理で行う。"""
+    lab.require("resume")
+    with lab._flock(lab.p("locks", "resume.lock"), "復旧再開"):
+        return _resume_locked(lab, args)
+
+
+def _resume_locked(lab: Lab, args) -> dict:
     """復旧保留を解除する。整合・鍵・新しさを「今」もう一度確かめ、元の作業領域の発行・失効・申請・記録を
     ロックで止めたまま新しさを判定し、その場で元の作業領域を置き換え済み（superseded）にする。
     元の作業領域は restore 時の識別子で確かめる（別のコピーを指定しても置き換えない）。"""
@@ -2850,8 +2874,17 @@ def cmd_resume(lab: Lab, args) -> dict:
     if src_lab is not None and src_lab.superseded():
         sup = read_json(src_lab.superseded_marker)
         if sup.get("replaced_by_instance") and sup.get("replaced_by_instance") == lab.instance_id():
-            if not args.confirm:
-                return {"action": "held", "blockers": [], "confirm_required": True, "note": "元の作業領域は置き換え済み"}
+            # A completed source fence is not proof that the destination is still intact.
+            chk = run_check(lab)
+            keys = _key_access(lab, lab.root_key, lab.root_pass) and _key_access(lab, lab.issuer_key, lab.issuer_pass)
+            blockers = []
+            if not chk["integrity_ok"]:
+                blockers.append("state_consistent")
+            if not keys:
+                blockers.append("key_access_ready")
+            if blockers or not args.confirm:
+                return {"action": "held", "blockers": blockers, "confirm_required": not args.confirm,
+                        "check": chk, "source_fenced": True, "note": "元の作業領域は置き換え済み"}
             lab.hold_marker.unlink()
             fsync_dir(lab.hold_marker.parent)
             lab.audit("resume", "ok", "", resumed_after_interruption=True, source_fenced=True)
@@ -2915,20 +2948,31 @@ EVENT_MAP = {
     ("crl-root", "ok"): "CRL_PUBLISHED",
 }
 SAFE_DETAIL_KEYS = {"code", "san", "reason", "host", "purpose", "not_after", "next_update", "crl_number",
-                    "action", "revoked", "stopped_at", "revocation_observation"}
+                    "action", "revoked", "stopped_at", "revocation_observation", "which"}
 
 
 def cmd_export_events(lab: Lab, args) -> dict:
     lab.require("export-events")
-    res = verify_audit_chain(lab.home)
-    if not res["ok"]:
-        raise LabError(res["code"], "監査ログを検証できないため出力しません", audit=res)
+    # Export exactly the snapshot that was validated, not a later unlocked read.
+    with lab.audit_lock():
+        res = verify_audit_chain(lab.home)
+        if not res["ok"]:
+            raise LabError(res["code"], "監査ログを検証できないため出力しません", audit=res)
+        lines = _audit_lines(lab.home)
     events = []
-    for line in _audit_lines(lab.home):
+    for line in lines:
         e = json.loads(line)
         details = {k: v for k, v in e["details"].items() if k in SAFE_DETAIL_KEYS}
         t = EVENT_MAP.get((e["op"], e["result"]))
         observation = "operation"
+        if e["op"] in ("revoke-requested", "revoke-completed") and e["result"] == "ok":
+            which = e["details"].get("which")
+            if which not in ("issuer", "root"):
+                raise LabError("EVENT_SCOPE_INVALID", "失効イベントの発行CAを特定できません", seq=e["seq"])
+            if e["op"] == "revoke-requested":
+                t = "REVOCATION_REQUESTED"
+            else:
+                t = "CERT_REVOKED" if which == "issuer" else "INTERMEDIATE_REVOKED"
         if e["op"] == "verify":
             # 検証は1回の処理として記録しているので、まとめた結果だけを出す。
             # 段階（経路・名前・失効…）は個別に計測していない：stages = not_observed

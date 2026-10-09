@@ -605,7 +605,14 @@ class TestCheck(LabCase):
         (self.home / "public/crl/intermediate.crl.pem").unlink()
         rc, out = run(self.home, "check")
         self.assertFalse(out["ok"])
-        self.assertEqual(sum("公開 CRL がない" in p for p in out["problems"]), 2)
+        self.assertEqual(rc, 1, out)
+        self.assertTrue(out["integrity_ok"], out)
+        self.assertEqual(sum("公開 CRL がない" in p for p in out["actions"]), 2)
+        # Repairable does not mean connection acceptance; revocation stays fail-closed.
+        req = run(self.home, "status")[1]["requests"][0]["id"]
+        rc, verified = run(self.home, "verify", "--request", req)
+        self.assertEqual((rc, verified["result"], verified["code"]), (1, "INDETERMINATE", "CRL_MISSING"))
+        self.assertTrue(all(row["status"] == "V" for row in self.index_rows()))
 
     def test_corrupted_newcert_detected(self):
         req = self.issue()

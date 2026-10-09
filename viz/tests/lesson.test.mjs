@@ -173,3 +173,14 @@ test('説明文：止まるゲートで結果コードを示し、以降は評�
   }
   assert.equal(captionFor(17, 'lesson').title, SCENES[17].title);
 });
+
+test('失効要求と公開完了のイベントを混同しない', () => {
+  const [requested, completed] = parseEvents({ schema: 'pkilab-events/2', measured: true, events: [
+    { seq: 1, type: 'REVOCATION_REQUESTED', origin: 'measured', details: { which: 'issuer' } },
+    { seq: 3, type: 'CERT_REVOKED', origin: 'measured', details: { which: 'issuer', crl_number: 4097 } },
+  ] });
+  assert.equal(requested.scene, 16);
+  assert.equal(completed.scene, 16);
+  assert.notEqual(requested.type, completed.type);
+  assert.equal(requested.revocationObservation, null);
+});

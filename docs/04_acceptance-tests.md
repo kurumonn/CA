@@ -2,8 +2,8 @@
 
 | 区分 | 実行方法 | 件数 |
 |---|---|---|
-| CA ラボ | `python3 -m unittest discover -s lab/tests -v` | 53 |
-| 3D ロジック | `cd viz && npm test` | 15 |
+| CA ラボ | `python3 -m unittest discover -s lab/tests -v` | 実行ログを正本とする |
+| 3D ロジック | `cd viz && npm test` | 実行ログを正本とする |
 | 実ブラウザ描画と表示内容 | `viz/tests/render-check.mjs`（Playwright / Chromium、CI の `viz-render` ジョブ） | 15 構図＋実測表示2件 |
 | 一連の流れ | `bash lab/scripts/demo.sh`（CI でも実行） | — |
 
@@ -64,7 +64,7 @@
 | 復旧 | `test_stale_backup_is_not_ready` | バックアップ後に失効があれば `freshness_confirmed=false`・`lost_changes` に revoke | F11 |
 | 復旧 | `test_tampered_backup_rejected_before_decrypt` | 1ビット改ざん → HMAC 不一致、展開しない | F11 |
 | 復旧 | `test_missing_key_passphrase_is_not_ready` | 鍵解除情報が無ければ `key_access_ready=false`、終了コード1 | F11 |
-| 教材 | `test_events_follow_observed_granularity` | 段階イベントを出さず集約1件、`--no-crl` は `revocation: skipped`、秘密・シリアルなし | F07 |
+| 教材 | `test_events_follow_observed_granularity` | 段階イベントを出さず集約1件、`--no-crl` は `revocation_requested:false` と `revocation_observation:not_requested`、秘密・シリアルなし | F07 |
 | 教材 | `test_export_refused_when_audit_broken` | 監査ログ異常時は出力しない | F07 |
 
 ## 3D 教材（`viz/tests/lesson.test.mjs`・`render-check.mjs`）
@@ -86,3 +86,15 @@
 - 長時間運用（CRL の定期再発行を自動で回す仕組み）
 - 以前の分割 GLB・LOD・AAA アセットの統合（F16、`docs/05_3d-space-design.md` 7章）
 - 実機 GPU での描画性能（FPS・VRAM）
+
+
+## Round 4追加試験と4件の修正判定
+
+- `test_resume_without_reachable_source_requires_explicit_decisions`：誤った明示sourceを拒否する試験と、記録された元環境が実際に不在の試験を分離。確認フラグ1個だけでは解除しない。
+- `test_tampered_source_log_is_not_evidence_of_freshness`：トップレベルだけでなく `checks.source.source_audit` と `checks.state` の両方を検査。
+- `test_missing_crls_detected_even_without_revocations`：CRL欠落が `actions` に入り、終了値1・`ok:false`・実検証拒否を維持することを確認。失効0件での黙認は禁止。
+- `test_events_follow_observed_granularity`：要求と観測の期待値を弱めず、失効完了イベントの欠落をExporterで修正。
+
+`test_continuation.py` は要求と失効完了の区別、公開失敗中の出力、未知scope、Exporterのsnapshot、要求監査のI/O障害、CRLの一時欠落、ルート署名直後の停止、再開中断後の鍵喪失・破損・再試行、再開同時実行、復元元の取り違えを検査する。
+
+件数はソース内の試験一覧と実行ログから確定する。受入試験の成功は、未試験の攻撃・障害・実GPU性能の保証ではない。
