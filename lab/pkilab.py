@@ -1245,7 +1245,8 @@ def chain_problem(lab: Lab, pem: Path, base: Path) -> str | None:
         crls = Path(f.name)
     try:
         cp = lab.openssl("verify", "-x509_strict", "-purpose", "sslserver", "-trusted", lab.root_cert,
-                         "-untrusted", base / "certs" / "intermediate.cert.pem", "-CRLfile", crls,
+                         "-untrusted", base / "certs" / "intermediate.cert.pem",
+                         *(["-CRLfile", crls] if crls.stat().st_size else []),
                          "-crl_check", "-crl_check_all", "-attime", str(int(utcnow().timestamp())), pem, check=False)
     finally:
         crls.unlink(missing_ok=True)
@@ -2928,6 +2929,14 @@ def cmd_export_events(lab: Lab, args) -> dict:
         e = json.loads(line)
         details = {k: v for k, v in e["details"].items() if k in SAFE_DETAIL_KEYS}
         t = EVENT_MAP.get((e["op"], e["result"]))
+        # Round 3 moved the completion audit into _finish_pending. A request
+        # is not a completed revocation: export only the audited completion,
+        # after the signed CRL was published and read back successfully.
+        if e["op"] == "revoke-completed" and e["result"] == "ok":
+            which = e["details"].get("which")
+            t = {"issuer": "CERT_REVOKED", "root": "INTERMEDIATE_REVOKED"}.get(which)
+            if t is not None:
+                details["issuer_scope"] = which
         observation = "operation"
         if e["op"] == "verify":
             # 検証は1回の処理として記録しているので、まとめた結果だけを出す。

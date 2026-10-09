@@ -605,7 +605,13 @@ class TestCheck(LabCase):
         (self.home / "public/crl/intermediate.crl.pem").unlink()
         rc, out = run(self.home, "check")
         self.assertFalse(out["ok"])
-        self.assertEqual(sum("公開 CRL がない" in p for p in out["problems"]), 2)
+        self.assertEqual(rc, 1)  # A repairable condition is still not healthy.
+        self.assertTrue(out["integrity_ok"], out)
+        self.assertEqual(sum("公開 CRL がない" in p for p in out["actions"]), 2)
+        # Refresh is a repair operation, not a reason to revoke sound certs.
+        self.assertEqual(run(self.home, "crl-root")[0], 0)
+        self.assertEqual(run(self.home, "crl-issuer")[0], 0)
+        self.assertTrue(run(self.home, "check")[1]["ok"])
 
     def test_corrupted_newcert_detected(self):
         req = self.issue()

@@ -55,7 +55,11 @@ class TestFreshness(LabCase):
         rewrite_ops_without_rehash(self.home, backup_seq + 1, "verify")  # 失効を「読み取り専用」に見せかける
         rc, rep = run(self.home, "restore", b, str(self.tmp / "r"))
         self.assertFalse(rep["freshness_confirmed"], rep)
-        self.assertEqual(rep.get("source_audit"), "AUDIT_TAMPERED")
+        # Round 3 reports each independent source of evidence separately.
+        # A state fingerprint mismatch must not mask the audit failure.
+        self.assertEqual(rep["checks"]["source"]["source_audit"], "AUDIT_TAMPERED")
+        self.assertFalse(rep["checks"]["state"]["freshness_confirmed"])
+        self.assertFalse(rep["ready"])
         self.assertEqual(rc, 1)
 
     def test_frozen_source_is_not_evidence_of_freshness(self):
@@ -105,7 +109,20 @@ class TestFreshness(LabCase):
         self.assertTrue(any(x.startswith("source_not_fenced") for x in out["blockers"]), out)
         rc, out = run(dest, "resume", "--confirm", "--source", missing, "--source-stopped", "--accept-stale",
                       *secrets_args(self.home))
-        self.assertEqual((out["action"], out["source_fenced"]), ("resumed", False), out)
+        # Explicitly naming the wrong/missing source is an identity error.
+        # Consent flags must not turn that error into a successful takeover.
+        self.assertEqual((rc, out["action"]), (1, "held"), out)
+        self.assertTrue(any(x.startswith("source_unavailable") for x in out["blockers"]), out)
+        self.assertTrue((dest / "recovery/hold.json").exists())
+        # Reproduce a genuinely unreachable original, not a bogus override.
+        # Keep its passwords on a separate path, as required by recovery.
+        offline = self.tmp / "offline-source"
+        self.home.rename(offline)
+        rc, out = run(dest, "resume", "--confirm", "--source-stopped", "--accept-stale",
+                      *secrets_args(offline))
+        self.assertEqual((rc, out["action"], out["source_fenced"]), (0, "resumed", False), out)
+        self.assertFalse(out["freshness"]["freshness_confirmed"])
+        self.assertFalse((dest / "recovery/hold.json").exists())
 
     def test_external_checkpoint_detects_rehashed_source_log(self):
         """ログと基準ハッシュの両方を書き換えられても、別媒体のチェックポイントで検出する。"""

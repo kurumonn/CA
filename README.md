@@ -1,5 +1,14 @@
 # 自分だけの認証局（CA）— 学習用 PKI ラボと3D教材
 
+
+## Round 4 実装更新
+
+基準 `1485180` の4件の失敗を切り分け、3件のテスト仕様更新と失効完了Exporterの不具合を修正しました。署名後に両CRLがない場合の誤隔離も修正し、CAの86テストが成功しています。
+
+分割GLB 40種×LOD0/LOD1を同梱しました。`viz/`を配信して `?quality=balanced&autoplay=0`（2K）または `?quality=hero&autoplay=0`（4K）で開きます。モデル単体の確認は `models.html`。初期モードは軽量教材です。GLBの統合は行いましたが、AAAの最終美術品質を認定したものではありません。
+
+詳細・現行仕様・未検証範囲は [Round 4 納品記録](docs/06_round4-delivery.md) を参照してください。
+
 ルートCA → 中間CA → localhost 用サーバー証明書の3階層を自分で構築し、
 **発行・審査・失効・検証・監査・復旧**までを試せる学習用の私設CAと、
 その流れを three.js の3Dアニメーションで見られる教材「信頼のアトリエ」です。
@@ -85,7 +94,7 @@ python3 -m http.server 8765 --bind 127.0.0.1
 ## テスト
 
 ```bash
-python3 -m unittest discover -s lab/tests -v     # CA ラボ 53件（復旧・監査・復元・CN フォールバック等の回帰を含む）
+python3 -m unittest discover -s lab/tests -v     # CA ラボ 86件（復旧・監査・復元・CN フォールバック等の回帰を含む）
 (cd viz && npm test)                              # 3D 教材のロジック 15件
 ```
 

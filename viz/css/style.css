@@ -90,3 +90,7 @@ body.embed .side { display: none; }
   .time { display: none; }
   .result { font-size: 14px; top: 44px; }
 }
+
+.model-link { color: #d3b375; text-underline-offset: 4px; }
+#qualityStatus { min-height: 2em; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
