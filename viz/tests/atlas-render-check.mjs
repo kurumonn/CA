@@ -8,15 +8,19 @@ const browser=await chromium.launch({args:['--use-angle=swiftshader','--enable-u
 const results=[],errors=[];
 try {
  const page=await browser.newPage({viewport:{width:1440,height:1000}});
+ page.setDefaultTimeout(120000);
  page.on('pageerror',e=>errors.push(e.message));
  await page.goto(`${base}?quality=balanced&capture=1&t=1&cam=overview`);
  await page.waitForFunction(()=>window.__atelier?.world.assetCount===40&&window.__atelier.renderer.info.render.calls>0,null,{timeout:120000});
  assert.equal(await page.evaluate(()=>window.__atelier.world.usedAssetIds.length),40);
- await page.screenshot({path:`${out}/overview.png`});
+ await page.screenshot({path:`${out}/overview.png`,timeout:120000});
+ const framesBefore=await page.evaluate(()=>window.__atelier.renderStats().frames);
+ await page.waitForTimeout(1000);
+ assert.equal(await page.evaluate(()=>window.__atelier.renderStats().frames),framesBefore,'paused static scene must not redraw continuously');
  const keys=await page.evaluate(()=>Object.fromEntries(Object.entries(window.__atelier.world.keys).map(([k,o])=>[k,o.position.toArray()])));
  for(const [scenario,t,code] of [['normal',162,'OK'],['untrusted',109,'UNTRUSTED_ANCHOR'],['sanMismatch',119,'SAN_MISMATCH'],['expired',129,'CERT_EXPIRED'],['wrongEku',139,'WRONG_EKU'],['leafRevoked',149,'LEAF_REVOKED'],['intermediateRevoked',149,'INTERMEDIATE_REVOKED'],['crlExpired',149,'CRL_EXPIRED'],['lesson',179,'LEAF_REVOKED']]) {
   await page.selectOption('#scenario',scenario);
-  await page.evaluate(t=>{const a=window.__atelier;a.ui.t=t;a.ui.playing=false;a.ui.autoCam=true;a.ui.lastScene=-1;},t);
+  await page.evaluate(t=>{const a=window.__atelier;a.ui.t=t;a.ui.playing=false;a.ui.autoCam=false;a.ui.lastScene=-1;},t);
   await page.waitForFunction(code=>document.getElementById('result').textContent.includes(code),code);
   const info=await page.evaluate(()=>({view:window.__atelier.describe(),keys:Object.fromEntries(Object.entries(window.__atelier.world.keys).map(([k,o])=>[k,o.position.toArray()])),rootVisible:window.__atelier.world.tokens.rootCertCopy.visible}));
   assert.deepEqual(info.keys,keys);
@@ -27,7 +31,9 @@ try {
   results.push({scenario,code,ok:true});
  }
  assert.equal(await page.evaluate(()=>window.__atelier.world.keys.root.userData.material!==window.__atelier.world.keys.server.userData.material),true);
- await page.setViewportSize({width:390,height:844});await page.screenshot({path:`${out}/mobile.png`});
+ await page.setViewportSize({width:390,height:844});
+ await page.waitForFunction(()=>window.__atelier.camera.aspect===document.getElementById('scene').clientWidth/document.getElementById('scene').clientHeight);
+ await page.screenshot({path:`${out}/mobile.png`,timeout:120000});
  await page.close();
  const model=await browser.newPage({viewport:{width:1440,height:1000}});model.on('pageerror',e=>errors.push(e.message));
  await model.goto(`${base}models.html?id=A12&lod=0`);
@@ -40,7 +46,8 @@ try {
   assert.ok(await model.evaluate(()=>window.__modelViewer.renderer.info.render.calls>0));
   results.push({id,clip,ok:true});
  }
- await model.screenshot({path:`${out}/model-guide.png`});await model.close();
+ await model.uncheck('#animate');
+ await model.screenshot({path:`${out}/model-guide.png`,timeout:120000});await model.close();
  assert.deepEqual(errors,[]);
  fs.writeFileSync(`${out}/results.json`,JSON.stringify({ok:true,scope:'HTTP / Chromium SwiftShader; not real GPU performance',results},null,2));
  console.log(`ATLAS OK: 40 GLBs, ${results.length} scene/clip checks`);

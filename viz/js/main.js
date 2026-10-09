@@ -360,30 +360,44 @@ function resize() {
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    renderDirty = true;
   }
 }
 
+// A paused lesson is static. Avoid saturating software/mobile GPUs with identical frames.
+let renderDirty = true, lastRenderState = "", renderedFrames = 0;
+controls.addEventListener("change", () => { renderDirty = true; });
+document.addEventListener("visibilitychange", () => { renderDirty = true; });
 const clock = new THREE.Clock();
 let elapsed = 0;
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
   elapsed += dt;
+  if (document.hidden) { requestAnimationFrame(frame); return; }
   if (ui.playing) {
     ui.t += dt * ui.speed;
     if (ui.t >= DURATION) { ui.t = DURATION; ui.playing = false; }
   }
   const st = lessonState(ui.t, ui.scenario);
   resize();
+  const renderState = `${ui.t}|${ui.scenario}|${ui.playing}|${ui.autoCam}`;
+  if (renderState !== lastRenderState || ui.lastScene === -1) renderDirty = true;
+  lastRenderState = renderState;
   updateUI(st);
-  apply(st, ui.playing ? elapsed : st.t);
   if (camGoal.active) {
+    renderDirty = true;
     const k = 1 - Math.pow(0.02, dt);
     camera.position.lerp(camGoal.pos, k);
     controls.target.lerp(camGoal.target, k);
     if (camera.position.distanceTo(camGoal.pos) < 0.02) camGoal.active = false;
   }
   controls.update();
-  renderer.render(scene, camera);
+  if (renderDirty) {
+    apply(st, ui.playing ? elapsed : st.t);
+    renderer.render(scene, camera);
+    renderedFrames++;
+    renderDirty = false;
+  }
   requestAnimationFrame(frame);
 }
 
@@ -396,6 +410,6 @@ if (params.has('capture')) {
   camera.position.set(c.target[0] + c.offset[0], c.target[1] + c.offset[1], c.target[2] + c.offset[2]);
   ui.autoCam = false;
 }
-window.__atelier = { ui, lessonState, world, renderer, scene, camera, quality, describe: () => world.describe(), loadEventsDoc };
+window.__atelier = { ui, lessonState, world, renderer, scene, camera, quality, renderStats: () => ({ frames: renderedFrames }), describe: () => world.describe(), loadEventsDoc };
 requestAnimationFrame(frame);
 document.body.classList.add('ready');
