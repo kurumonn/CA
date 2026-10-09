@@ -8,6 +8,27 @@ permissions:
   contents: read
 
 jobs:
+  source-snapshot:
+    # Export tracked files only. No working keys, passphrases, .git or runner credentials.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Archive exact source and record identity
+        run: |
+          mkdir -p "$RUNNER_TEMP/source-snapshot"
+          git rev-parse HEAD > "$RUNNER_TEMP/source-snapshot/COMMIT.txt"
+          git archive --format=tar.gz --prefix=CA/ HEAD > "$RUNNER_TEMP/source-snapshot/CA-source.tar.gz"
+          (cd "$RUNNER_TEMP/source-snapshot" && sha256sum CA-source.tar.gz > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ca-source-snapshot
+          path: ${{ runner.temp }}/source-snapshot/
+          if-no-files-found: error
+          retention-days: 7
+
   lab:
     runs-on: ubuntu-latest
     steps:
