@@ -1,0 +1,11 @@
+# TLS サーバー証明書プロファイル（固定）
+# {SAN} だけが承認内容から差し込まれる。このファイルのハッシュは承認記録に
+# 結び付けられ、承認後に変更されると発行は止まる（再承認が必要）。
+[ server_cert ]
+basicConstraints       = critical, CA:FALSE
+keyUsage               = critical, digitalSignature
+extendedKeyUsage       = serverAuth
+subjectKeyIdentifier   = hash
+authorityKeyIdentifier = keyid:always
+crlDistributionPoints  = URI:http://127.0.0.1:8000/crl/intermediate.crl.pem
+subjectAltName         = {SAN}

@@ -1,0 +1,7 @@
+# PKI Lab の作業領域（秘密鍵・パスフレーズが生成される）
+lab/work/
+*.key.pem
+*.pass
+__pycache__/
+node_modules/
+screenshots/

@@ -1,0 +1,57 @@
+# ルートCA用 OpenSSL 設定（学習用）
+# 本番ではこのファイルと root/ ディレクトリは「Root VM」側だけに置き、
+# Lab VM（中間CA・サーバー）へはコピーしない。
+# パスは環境変数 PKILAB_HOME から解決する。
+
+[ ca ]
+default_ca = CA_root
+
+[ CA_root ]
+dir               = $ENV::PKILAB_HOME/root
+database          = $dir/db/index.txt
+new_certs_dir     = $dir/newcerts
+certificate       = $dir/certs/root.cert.pem
+private_key       = $dir/private/root.key.pem
+crlnumber         = $dir/db/crlnumber
+rand_serial       = yes
+default_md        = sha256
+policy            = policy_cn_only
+unique_subject    = no
+email_in_dn       = no
+# CSR に書かれた拡張は絶対にコピーしない（申請者に CA 権限を渡す事故を防ぐ）
+copy_extensions   = none
+default_crl_days  = 30
+crl_extensions    = crl_ext
+name_opt          = ca_default
+cert_opt          = ca_default
+
+[ policy_cn_only ]
+commonName        = supplied
+
+[ req ]
+distinguished_name = req_dn
+prompt             = no
+string_mask        = utf8only
+
+[ req_dn ]
+CN = PKI Lab Root CA
+
+# --- ルートCA自身（自己署名） ---
+[ v3_root ]
+basicConstraints       = critical, CA:TRUE, pathlen:1
+keyUsage               = critical, keyCertSign, cRLSign
+subjectKeyIdentifier   = hash
+authorityKeyIdentifier = keyid:always
+
+# --- ルートが中間CAに与えるプロファイル ---
+[ v3_intermediate ]
+basicConstraints       = critical, CA:TRUE, pathlen:0
+keyUsage               = critical, keyCertSign, cRLSign
+extendedKeyUsage       = serverAuth
+subjectKeyIdentifier   = hash
+authorityKeyIdentifier = keyid:always
+nameConstraints        = critical, permitted;DNS:localhost, permitted;IP:127.0.0.1/255.255.255.255
+crlDistributionPoints  = URI:http://127.0.0.1:8000/crl/root.crl.pem
+
+[ crl_ext ]
+authorityKeyIdentifier = keyid:always

@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  source-snapshot:
+    # Export tracked files only. No working keys, passphrases, .git or runner credentials.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Archive exact source and record identity
+        run: |
+          mkdir -p "$RUNNER_TEMP/source-snapshot"
+          git rev-parse HEAD > "$RUNNER_TEMP/source-snapshot/COMMIT.txt"
+          git archive --format=tar.gz --prefix=CA/ HEAD > "$RUNNER_TEMP/source-snapshot/CA-source.tar.gz"
+          (cd "$RUNNER_TEMP/source-snapshot" && sha256sum CA-source.tar.gz > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ca-source-snapshot
+          path: ${{ runner.temp }}/source-snapshot/
+          if-no-files-found: error
+          retention-days: 7
+
+  lab:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: OpenSSL version
+        run: openssl version
+      - name: PKI Lab tests (incl. recovery, audit, restore, CN-fallback regressions)
+        run: python3 -m unittest discover -s lab/tests -v
+      - name: End-to-end demo
+        run: PKILAB_DEMO_PORT=18443 PKILAB_KDF_ITER=20000 bash lab/scripts/demo.sh "$RUNNER_TEMP/pkilab"
+
+  viz-logic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Lesson logic tests
+        working-directory: viz
+        run: npm test
+
+  viz-render:
+    # 実ブラウザ（Chromium / SwiftShader）で描画し、場面・結果コード・カード内容・実測表示を検査する
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Playwright (pinned in package-lock.json)
+        working-directory: viz
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Render check
+        run: |
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory viz &
+          sleep 1
+          node viz/tests/render-check.mjs http://127.0.0.1:8765/ "$RUNNER_TEMP/screenshots"
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: viz-screenshots
+          path: ${{ runner.temp }}/screenshots
