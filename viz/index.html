@@ -52,6 +52,16 @@
 
     <aside class="side">
       <div class="block">
+        <label class="lbl" for="quality">表示品質</label>
+        <select id="quality">
+          <option value="lite">軽量教材（従来版）</option>
+          <option value="balanced">分割GLB・バランス／2K</option>
+          <option value="hero">分割GLB・高精細／4K</option>
+        </select>
+        <p id="qualityStatus" class="note" role="status">準備中…</p>
+        <a href="models.html" class="model-link">40モデルを単体で確認 →</a>
+      </div>
+      <div class="block">
         <label class="lbl" for="scenario">条件を切り替える</label>
         <select id="scenario"></select>
         <label class="check"><input id="autocam" type="checkbox" checked> カメラを場面に合わせる</label>

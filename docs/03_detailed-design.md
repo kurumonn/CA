@@ -1,5 +1,8 @@
 # 03 詳細設計 — 学習用私設CA「PKI Lab」
 
+
+> **Round 4追補：** 実装の変更点と現在の検証範囲は [06_round4-delivery.md](06_round4-delivery.md) を参照してください。旧記述のテスト件数・分割GLB未統合・検証状態に関する説明は追補を優先します。
+
 実装: `lab/pkilab.py`（Python 標準ライブラリ＋OpenSSL 3.x CLI）
 
 ## 1. ファイル配置（`PKILAB_HOME`、既定 `lab/work/`）

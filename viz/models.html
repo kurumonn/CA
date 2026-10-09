@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>分割GLB 40モデル｜信頼のアトリエ</title>
+<link rel="icon" href="data:,"><link rel="stylesheet" href="css/style.css">
+<style>.viewer{height:100vh;display:grid;grid-template-columns:minmax(0,1fr) 330px}.preview{position:relative;min-width:0}.preview canvas{width:100%;height:100%;display:block}.viewer h1{font-size:20px}.viewer aside{padding:20px;overflow:auto}.viewer label{display:block;margin:16px 0 6px}.viewer select{width:100%}.viewer dl{font-size:13px}.viewer dt{color:#99aab8;margin-top:8px}.viewer dd{margin:0}.viewer .status{position:absolute;left:20px;top:18px;max-width:85%;background:#141b27d9;padding:8px 12px;border-radius:8px}.viewer a{color:#e2bc79}@media(max-width:760px){.viewer{grid-template-columns:1fr;grid-template-rows:60vh auto}.preview{height:60vh}.viewer aside{overflow:visible}}</style>
+<script type="importmap">{"imports":{"three":"./vendor/three/three.module.js","three/addons/":"./vendor/three/addons/"}}</script></head>
+<body><main class="viewer"><section class="preview"><canvas id="modelCanvas" aria-label="モデルを回転・拡大して確認"></canvas><div class="status" id="modelStatus" role="status">GLBを読み込み中…</div></section><aside>
+<a href="index.html?quality=balanced&autoplay=0">← 学習空間に戻る</a><h1>分割モデル検査室</h1>
+<p class="note">実際のGLB・PBR材質を表示します。秘密鍵の形は説明用の象徴です。美術品質の最終受入れは未完了です。</p>
+<label for="asset">モデル（40種）</label><select id="asset"></select>
+<label for="lod">モデル密度・材質</label><select id="lod"><option value="0">LOD0 ／ 4K</option><option value="1">LOD1 ／ 2K</option></select>
+<label for="clip">可動クリップ</label><select id="clip"></select>
+<label class="check"><input id="animate" type="checkbox"> アニメーションを再生</label>
+<label class="check"><input id="wire" type="checkbox"> ワイヤーフレーム</label>
+<label class="check"><input id="bounds" type="checkbox"> 外形寸法を表示</label>
+<dl id="modelMeta"></dl><p class="note">マウス：回転・ズーム・平行移動。単位はメートル。読み込みに失敗したモデルを成功表示しません。</p>
+</aside></main><script type="module" src="js/models.js"></script></body></html>

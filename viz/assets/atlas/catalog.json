@@ -1,0 +1,1466 @@
+[
+  {
+    "id": "A01",
+    "name": "展示基壇",
+    "category": "architecture",
+    "bounds": [
+      [
+        -14.0,
+        -0.46000000834465027,
+        -10.0
+      ],
+      [
+        14.0,
+        0.02500000037252903,
+        10.0
+      ]
+    ],
+    "dimensions": [
+      28.0,
+      0.485,
+      20.0
+    ],
+    "lod0": {
+      "bytes": 64204,
+      "sha256": "9a40219c705aa86627fd0ce2b3e848d7191d6f6ec8a9d68d67c3dcc122160bf1",
+      "mesh_triangles": 1944,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 23492,
+      "sha256": "556f4778e5b5ed00821b70dc72d251a553418be0a682527f7ef7a1014642a4c0",
+      "mesh_triangles": 600,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A02",
+    "name": "床タイル・見切り",
+    "category": "architecture",
+    "bounds": [
+      [
+        -0.9900000095367432,
+        0.0,
+        -0.9900000095367432
+      ],
+      [
+        0.9900000095367432,
+        0.11999999731779099,
+        0.9900000095367432
+      ]
+    ],
+    "dimensions": [
+      1.98,
+      0.12,
+      1.98
+    ],
+    "lod0": {
+      "bytes": 33384,
+      "sha256": "0207e51a5888a021c31bb2d60b2c6de67db84235f365c883ee08fe92dee27cb7",
+      "mesh_triangles": 972,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 13028,
+      "sha256": "01f23b1db2d00c72e45f23f0ab530e7eb390c317809cc1af9040976aa94a5fad",
+      "mesh_triangles": 300,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A03",
+    "name": "壁パネル・吸気スリット",
+    "category": "architecture",
+    "bounds": [
+      [
+        -1.0,
+        0.0,
+        -0.09000000357627869
+      ],
+      [
+        1.0,
+        3.299999952316284,
+        0.1899999976158142
+      ]
+    ],
+    "dimensions": [
+      2.0,
+      3.3,
+      0.28
+    ],
+    "lod0": {
+      "bytes": 394916,
+      "sha256": "9a0abcaaf57e32a3bdde314926c2062d6f9fd91f2ea07e254662d24ec0b6362d",
+      "mesh_triangles": 12048,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 87384,
+      "sha256": "c3ec24ea4d2bfb8f121b96dc3310ed9f022514d288447be9f57d10dbff560a0c",
+      "mesh_triangles": 2400,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A04",
+    "name": "ガラス間仕切り",
+    "category": "architecture",
+    "bounds": [
+      [
+        -1.002500057220459,
+        0.0,
+        -0.04749999940395355
+      ],
+      [
+        1.002500057220459,
+        2.799999952316284,
+        0.04749999940395355
+      ]
+    ],
+    "dimensions": [
+      2.005,
+      2.8,
+      0.095
+    ],
+    "lod0": {
+      "bytes": 157648,
+      "sha256": "8fb4b6c925d2e8fdfd8341734a7f6748251f618bb3f18b06e016352862303bb2",
+      "mesh_triangles": 4860,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 55876,
+      "sha256": "bf72e9ccaca9955b45b86beb259b6898635672e94fb78475c9f9afad8f123d07",
+      "mesh_triangles": 1500,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A05",
+    "name": "区画入口フレーム",
+    "category": "architecture",
+    "bounds": [
+      [
+        -1.5499999523162842,
+        0.0,
+        -0.15000000596046448
+      ],
+      [
+        1.5499999523162842,
+        3.2799999713897705,
+        0.1850000023841858
+      ]
+    ],
+    "dimensions": [
+      3.1,
+      3.28,
+      0.335
+    ],
+    "lod0": {
+      "bytes": 156852,
+      "sha256": "64d873b3fcc5eefd1f2a568011c19e643d86839c724f851491d157d114c99626",
+      "mesh_triangles": 4860,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 55088,
+      "sha256": "a5816c138fcf64679dda40fc4136f04d3f208ae2a3f4d7fe4ebff58a53765676",
+      "mesh_triangles": 1500,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A06",
+    "name": "線状照明",
+    "category": "architecture",
+    "bounds": [
+      [
+        -1.2000000476837158,
+        -0.017500000074505806,
+        -0.1899999976158142
+      ],
+      [
+        1.2000000476837158,
+        0.1599999964237213,
+        0.1899999976158142
+      ]
+    ],
+    "dimensions": [
+      2.4,
+      0.1775,
+      0.38
+    ],
+    "lod0": {
+      "bytes": 65040,
+      "sha256": "91ec110226ae25be0b2bd5e3a97475f6db34f93fcade77694374573a307021c4",
+      "mesh_triangles": 1944,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 24332,
+      "sha256": "12633022879e0f1c7afe0bad45199f7d4beb24c92102149c6dc06426a419a555",
+      "mesh_triangles": 600,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A07",
+    "name": "境界ポール",
+    "category": "architecture",
+    "bounds": [
+      [
+        -0.1599999964237213,
+        0.0,
+        -0.1599999964237213
+      ],
+      [
+        0.1599999964237213,
+        1.1174999475479126,
+        0.1599999964237213
+      ]
+    ],
+    "dimensions": [
+      0.32,
+      1.1175,
+      0.32
+    ],
+    "lod0": {
+      "bytes": 63384,
+      "sha256": "b9f5c4b21e3183abf2cc0e706a8ea56a7ebbe5cfedf754abe754043d723b80c3",
+      "mesh_triangles": 1152,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 28428,
+      "sha256": "a65ca1a53fe3160e94aa47aeda3477750f9b02deda04ca7f8ff01ac6e48677f2",
+      "mesh_triangles": 480,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A08",
+    "name": "展示台座",
+    "category": "architecture",
+    "bounds": [
+      [
+        -0.75,
+        0.0,
+        -0.75
+      ],
+      [
+        0.75,
+        0.5400000214576721,
+        0.75
+      ]
+    ],
+    "dimensions": [
+      1.5,
+      0.54,
+      1.5
+    ],
+    "lod0": {
+      "bytes": 64188,
+      "sha256": "1ea90f5e0bf957588a1f071bf93f8b38b47637ed3452826323a2252f121ef98a",
+      "mesh_triangles": 1944,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 23476,
+      "sha256": "6113f1c68d0e0bc562d9566c6d12d157b7bbf162c19169a7d08fe22212808b0a",
+      "mesh_triangles": 600,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A09",
+    "name": "ルートCA金庫・本体",
+    "category": "root",
+    "bounds": [
+      [
+        -1.5700000524520874,
+        0.0,
+        -0.75
+      ],
+      [
+        1.5700000524520874,
+        2.8399999141693115,
+        1.0299999713897705
+      ]
+    ],
+    "dimensions": [
+      3.14,
+      2.84,
+      1.78
+    ],
+    "lod0": {
+      "bytes": 1147516,
+      "sha256": "93c78ffa84125668e23c7efb0b52e05bf93281f71a12080beca651fba49bbe7e",
+      "mesh_triangles": 34776,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 181216,
+      "sha256": "7880f1781e704879e800a0d349d459827aa01978b4ed4e566f680b8b19c5c8ca",
+      "mesh_triangles": 5100,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A10",
+    "name": "金庫扉・可動ヒンジ",
+    "category": "root",
+    "bounds": [
+      [
+        -1.1599999982118607,
+        0.36000001430511475,
+        -0.14000000059604645
+      ],
+      [
+        1.0600001049041747,
+        2.5199999809265137,
+        0.4000000059604645
+      ]
+    ],
+    "dimensions": [
+      2.22,
+      2.16,
+      0.54
+    ],
+    "lod0": {
+      "bytes": 525304,
+      "sha256": "a66214aba1204e4a31c371678c3c5b83890522b0bc92d342daf46210569ccf90",
+      "mesh_triangles": 13044,
+      "nodes": 2,
+      "animations": [
+        "VaultDoor_Open"
+      ]
+    },
+    "lod1": {
+      "bytes": 178736,
+      "sha256": "c1b798cc660fdf596ea7190baf3ebfb7410c6e9d6991e08f1e0078c54fa8c48d",
+      "mesh_triangles": 3684,
+      "nodes": 2,
+      "animations": [
+        "VaultDoor_Open"
+      ]
+    }
+  },
+  {
+    "id": "A11",
+    "name": "秘密鍵固定台・保護カバー",
+    "category": "root",
+    "bounds": [
+      [
+        -0.5400000214576721,
+        0.0,
+        -0.3199999928474426
+      ],
+      [
+        0.5400000214576721,
+        0.8675000071525574,
+        0.3199999928474426
+      ]
+    ],
+    "dimensions": [
+      1.08,
+      0.8675,
+      0.64
+    ],
+    "lod0": {
+      "bytes": 157656,
+      "sha256": "06b0805cc4a4b03f53544e65c244a4a11104643d58317ec3707769f1a722000d",
+      "mesh_triangles": 4860,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 55884,
+      "sha256": "89881e71c341820535274d0f73ff6e3156c0018b1d6f054e0f0a00ec42efd499",
+      "mesh_triangles": 1500,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A12",
+    "name": "中間CA署名コンソール",
+    "category": "issuer",
+    "bounds": [
+      [
+        -1.309999942779541,
+        0.0,
+        -0.7900000214576721
+      ],
+      [
+        1.309999942779541,
+        2.5850000381469727,
+        0.8199999928474426
+      ]
+    ],
+    "dimensions": [
+      2.62,
+      2.585,
+      1.61
+    ],
+    "lod0": {
+      "bytes": 1337236,
+      "sha256": "69cf2ef3c586456b13c099dda3b8aa9e1935d8691909cd3237bc654b0970d6fa",
+      "mesh_triangles": 38756,
+      "nodes": 2,
+      "animations": [
+        "Signing_Press"
+      ]
+    },
+    "lod1": {
+      "bytes": 307708,
+      "sha256": "ab861f6e71fa0c77f21e91ab274ec0da2d434c879b6ddf345e16fef3a4e9b48f",
+      "mesh_triangles": 7620,
+      "nodes": 2,
+      "animations": [
+        "Signing_Press"
+      ]
+    }
+  },
+  {
+    "id": "A13",
+    "name": "RA申請受付カウンター",
+    "category": "office",
+    "bounds": [
+      [
+        -1.6749999523162842,
+        0.0,
+        -0.7900000214576721
+      ],
+      [
+        1.6749999523162842,
+        1.125,
+        0.7900000214576721
+      ]
+    ],
+    "dimensions": [
+      3.35,
+      1.125,
+      1.58
+    ],
+    "lod0": {
+      "bytes": 866720,
+      "sha256": "22f3d06a720c0966bb098522e4508e1620bae12e98f6d222e76ea053a714b7e6",
+      "mesh_triangles": 27216,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 170708,
+      "sha256": "9ac5dd34b2a845ca8b69709b490dfc452ae072904cbc0d55084a4abbd42bba12",
+      "mesh_triangles": 4800,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A14",
+    "name": "利用者モニター",
+    "category": "office",
+    "bounds": [
+      [
+        -0.6899999976158142,
+        0.0,
+        -0.25
+      ],
+      [
+        0.6899999976158142,
+        1.3550000190734863,
+        0.25
+      ]
+    ],
+    "dimensions": [
+      1.38,
+      1.355,
+      0.5
+    ],
+    "lod0": {
+      "bytes": 244952,
+      "sha256": "e85b00b58453c9bac701658297b4da50ca1d7f842fcb1755343e90b4539da7b5",
+      "mesh_triangles": 7284,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 90820,
+      "sha256": "fe44ae329b35d5b7d49c70c60a5690fc832be83676eb28e48a9e6da1167e427b",
+      "mesh_triangles": 2356,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A15",
+    "name": "キーボード",
+    "category": "office",
+    "bounds": [
+      [
+        -0.5199999809265137,
+        0.0,
+        -0.1899999976158142
+      ],
+      [
+        0.5199999809265137,
+        0.08900000154972076,
+        0.20499999821186066
+      ]
+    ],
+    "dimensions": [
+      1.04,
+      0.089,
+      0.395
+    ],
+    "lod0": {
+      "bytes": 1792644,
+      "sha256": "0b558d298dc25026bb1e1f6e0482238af4f16370cec69df6f64559155bedd56d",
+      "mesh_triangles": 56376,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 317880,
+      "sha256": "4f2cf72cf129d8b064f9032993e773a0b85bdec9df40fcf69aaf0fb463f3ae9b",
+      "mesh_triangles": 9000,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A16",
+    "name": "HTTPSサーバーラック",
+    "category": "server",
+    "bounds": [
+      [
+        -0.5699999928474426,
+        0.0,
+        -0.48500001430511475
+      ],
+      [
+        0.5699999928474426,
+        2.440000057220459,
+        0.6340000033378601
+      ]
+    ],
+    "dimensions": [
+      1.14,
+      2.44,
+      1.119
+    ],
+    "lod0": {
+      "bytes": 3129092,
+      "sha256": "0d4bee6374081312f96c7fd4ee44218e6ac99ad5e966f8f39ea5c39c6186272f",
+      "mesh_triangles": 91800,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 939924,
+      "sha256": "1e051b3df40b7ed575d157175515f61c9177bc990832664f3d042a9de8eee1a2",
+      "mesh_triangles": 24752,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A17",
+    "name": "利用側の信頼ストア",
+    "category": "client",
+    "bounds": [
+      [
+        -0.8500000238418579,
+        0.0,
+        -0.5049999952316284
+      ],
+      [
+        0.8500000238418579,
+        1.622499942779541,
+        0.6299999952316284
+      ]
+    ],
+    "dimensions": [
+      1.7,
+      1.6225,
+      1.135
+    ],
+    "lod0": {
+      "bytes": 530536,
+      "sha256": "1caeba5c3378dfe31c3ad160e21aa93df5a198e89a96a05eab3332e2634a317d",
+      "mesh_triangles": 16524,
+      "nodes": 4,
+      "animations": [
+        "TrustDrawer_Select"
+      ]
+    },
+    "lod1": {
+      "bytes": 184524,
+      "sha256": "bafb387677babe5885920d4b7dde1e070338480307a4f286d9f2367d57713451",
+      "mesh_triangles": 5100,
+      "nodes": 4,
+      "animations": [
+        "TrustDrawer_Select"
+      ]
+    }
+  },
+  {
+    "id": "A18",
+    "name": "検証ゲート・可動扉",
+    "category": "verification",
+    "bounds": [
+      [
+        -0.9800000190734863,
+        0.0,
+        -0.3449999988079071
+      ],
+      [
+        0.9800000190734863,
+        2.759999990463257,
+        0.3449999988079071
+      ]
+    ],
+    "dimensions": [
+      1.96,
+      2.76,
+      0.69
+    ],
+    "lod0": {
+      "bytes": 316436,
+      "sha256": "ede9019b3eaaf76281ea05caaa162ba9ee881baca4289f22ddf60f6d70da5fce",
+      "mesh_triangles": 9720,
+      "nodes": 3,
+      "animations": [
+        "Gate_Open"
+      ]
+    },
+    "lod1": {
+      "bytes": 112876,
+      "sha256": "4f05193d708978ead45c0e77ef1cc6904761af5e34346d443b3b57fd67dd56f4",
+      "mesh_triangles": 3000,
+      "nodes": 3,
+      "animations": [
+        "Gate_Open"
+      ]
+    }
+  },
+  {
+    "id": "A19",
+    "name": "検証チェックリスト端末",
+    "category": "verification",
+    "bounds": [
+      [
+        -0.38499999046325684,
+        0.0,
+        -0.3199999928474426
+      ],
+      [
+        0.38499999046325684,
+        1.7949999570846558,
+        0.3199999928474426
+      ]
+    ],
+    "dimensions": [
+      0.77,
+      1.795,
+      0.64
+    ],
+    "lod0": {
+      "bytes": 291040,
+      "sha256": "ab197c0b77c7fc5bc2caceebc8a8d06fa69cdc8186d3c4642c19351089290599",
+      "mesh_triangles": 8148,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 125276,
+      "sha256": "5a7e94905c0ecfa74c44443e7857973c343e789e587b0f4890af741e2eea9207",
+      "mesh_triangles": 2996,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A20",
+    "name": "CRL配布キャビネット",
+    "category": "revocation",
+    "bounds": [
+      [
+        -0.8899999856948853,
+        0.0,
+        -0.5600000023841858
+      ],
+      [
+        0.8899999856948853,
+        2.0399999618530273,
+        0.715499997138977
+      ]
+    ],
+    "dimensions": [
+      1.78,
+      2.04,
+      1.2755
+    ],
+    "lod0": {
+      "bytes": 857116,
+      "sha256": "3307eab952e9d0beb37c12d1f343bd7fb306c6873a3432e9da011df8a926ce30",
+      "mesh_triangles": 26628,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 244308,
+      "sha256": "cd154e4f59dd94601fbccfbaa624262cded55615512cb3e58998555dcfb7c809",
+      "mesh_triangles": 6900,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A21",
+    "name": "OCSP比較展示キオスク",
+    "category": "revocation",
+    "bounds": [
+      [
+        -0.5299999713897705,
+        0.0,
+        -0.47999998927116394
+      ],
+      [
+        0.5299999713897705,
+        1.850000023841858,
+        0.47999998927116394
+      ]
+    ],
+    "dimensions": [
+      1.06,
+      1.85,
+      0.96
+    ],
+    "lod0": {
+      "bytes": 165700,
+      "sha256": "303eb9ac4d5cd671c56dbf0ba5dec0bd34c38bab7c38897b87196cea287c97d0",
+      "mesh_triangles": 3864,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 66756,
+      "sha256": "b4daf0a93becbe480ed824b7ad44254c4b40da8fff0f5edb8be7940142a2eff2",
+      "mesh_triangles": 1400,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A22",
+    "name": "監査記録キャビネット",
+    "category": "office",
+    "bounds": [
+      [
+        -0.7099999785423279,
+        0.0,
+        -0.3700000047683716
+      ],
+      [
+        0.7099999785423279,
+        2.119999885559082,
+        0.5
+      ]
+    ],
+    "dimensions": [
+      1.42,
+      2.12,
+      0.87
+    ],
+    "lod0": {
+      "bytes": 496344,
+      "sha256": "c4cb3053272247253bbd406b2a6b0cf9dead9fb6e522114b2b6f33562b8cf38d",
+      "mesh_triangles": 15552,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 170708,
+      "sha256": "d69a3c60b668649aeda6c005dae92820b7ebcdcb56596ce6d095292cb607e06e",
+      "mesh_triangles": 4800,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A23",
+    "name": "公開データ搬送ケース",
+    "category": "root",
+    "bounds": [
+      [
+        -0.4300000071525574,
+        0.0,
+        -0.30000001192092896
+      ],
+      [
+        0.4300000071525574,
+        0.47600001096725464,
+        0.32249999046325684
+      ]
+    ],
+    "dimensions": [
+      0.86,
+      0.476,
+      0.6225
+    ],
+    "lod0": {
+      "bytes": 310308,
+      "sha256": "dc86836cfde15cab1438fec57cefaec26ecf307b90d3d7579b052d1b9a7ed0cf",
+      "mesh_triangles": 8928,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 112544,
+      "sha256": "250d38a9ab10e5a08a6725d81986a812d8b38928d8094c8791c61b0d6bb39e59",
+      "mesh_triangles": 2880,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A24",
+    "name": "秘密鍵の象徴モデル",
+    "category": "concept",
+    "bounds": [
+      [
+        -0.3070000112056732,
+        0.14000000059604645,
+        -0.05700000002980232
+      ],
+      [
+        0.3070000112056732,
+        1.4270000457763672,
+        0.05700000002980232
+      ]
+    ],
+    "dimensions": [
+      0.614,
+      1.287,
+      0.114
+    ],
+    "lod0": {
+      "bytes": 194420,
+      "sha256": "3c9e72746f0e08aa5d2b5f27a7dadfc9c135f67edcc9e1f285e5c0c33700f361",
+      "mesh_triangles": 6192,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 64368,
+      "sha256": "c7bda145db49001d527ebb674496924605a1a086d48824c3d8fe5cff68d42af9",
+      "mesh_triangles": 1840,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A25",
+    "name": "公開鍵の象徴モデル",
+    "category": "concept",
+    "bounds": [
+      [
+        -0.49000000953674316,
+        0.20999999344348907,
+        -0.05999999865889549
+      ],
+      [
+        0.49000000953674316,
+        1.0499999523162842,
+        0.05999999865889549
+      ]
+    ],
+    "dimensions": [
+      0.98,
+      0.84,
+      0.12
+    ],
+    "lod0": {
+      "bytes": 225284,
+      "sha256": "7abbcad0e15236301c2120716cdf5404fb5409eb828b524c976cb4e88f9fb239",
+      "mesh_triangles": 7164,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 74880,
+      "sha256": "cf7d8a61112f4ad278e1a5838b8b78e8e8a74284599f4f544cd055dc49f7a3b4",
+      "mesh_triangles": 2140,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A26",
+    "name": "CSR申込フォルダー",
+    "category": "concept",
+    "bounds": [
+      [
+        -0.550000011920929,
+        0.0,
+        -0.029999999329447746
+      ],
+      [
+        0.5500000238418579,
+        1.3799999952316284,
+        0.1570000022649765
+      ]
+    ],
+    "dimensions": [
+      1.1,
+      1.38,
+      0.187
+    ],
+    "lod0": {
+      "bytes": 367044,
+      "sha256": "a826b44d86ae2bc704068e7385c1c3227bbd2a306f9d00b185594b85fbfc94d3",
+      "mesh_triangles": 11256,
+      "nodes": 2,
+      "animations": [
+        "CSR_Read"
+      ]
+    },
+    "lod1": {
+      "bytes": 127544,
+      "sha256": "953c4aacf30e0a883078af7fe0cbe1166bedfe62da1c35dc72845b2511d3c554",
+      "mesh_triangles": 3480,
+      "nodes": 2,
+      "animations": [
+        "CSR_Read"
+      ]
+    }
+  },
+  {
+    "id": "A27",
+    "name": "サーバー証明書カード",
+    "category": "concept",
+    "bounds": [
+      [
+        -0.6800000071525574,
+        0.0,
+        -0.032499998807907104
+      ],
+      [
+        0.6800000071525574,
+        1.7599999904632568,
+        0.11599999666213989
+      ]
+    ],
+    "dimensions": [
+      1.36,
+      1.76,
+      0.1485
+    ],
+    "lod0": {
+      "bytes": 365672,
+      "sha256": "04de70cf4fe59bc857471eb60bacd2c3dc7d57c13cf8fc04633372efbcb4a27e",
+      "mesh_triangles": 11256,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 126180,
+      "sha256": "53f6bce64130e264ed674ad22e5844fa12db558ccf58769e107fd3a8a22e50e1",
+      "mesh_triangles": 3480,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A28",
+    "name": "中間CA証明書カード",
+    "category": "concept",
+    "bounds": [
+      [
+        -0.6800000071525574,
+        0.0,
+        -0.032499998807907104
+      ],
+      [
+        0.6800000071525574,
+        1.7599999904632568,
+        0.11599999666213989
+      ]
+    ],
+    "dimensions": [
+      1.36,
+      1.76,
+      0.1485
+    ],
+    "lod0": {
+      "bytes": 396532,
+      "sha256": "e0c20f678e064370cc4f4eb7e3ce880847b07419d9f28e12e253d069eff3c0ba",
+      "mesh_triangles": 12228,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 136688,
+      "sha256": "4bdd2061811a4bd91b8d577a0313f00cd793737fa5688d01d1acc9265ac47b2a",
+      "mesh_triangles": 3780,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A29",
+    "name": "ルートCA証明書カード",
+    "category": "concept",
+    "bounds": [
+      [
+        -0.6800000071525574,
+        0.0,
+        -0.032499998807907104
+      ],
+      [
+        0.6800000071525574,
+        1.7599999904632568,
+        0.11599999666213989
+      ]
+    ],
+    "dimensions": [
+      1.36,
+      1.76,
+      0.1485
+    ],
+    "lod0": {
+      "bytes": 427400,
+      "sha256": "3b0841643ae2a9d64af4c3c5155f7adc0cc719d29393b51fd2cf791afb54ee1f",
+      "mesh_triangles": 13200,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 147204,
+      "sha256": "47a89410df37dd9bcc7026d29d2bf3d6f71f5fd066cf6617e7711f4f1a18bbb3",
+      "mesh_triangles": 4080,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A30",
+    "name": "署名付きCRL一覧ボード",
+    "category": "concept",
+    "bounds": [
+      [
+        -0.7099999785423279,
+        0.0,
+        -0.03500000014901161
+      ],
+      [
+        0.7099999785423279,
+        1.9199999570846558,
+        0.09350000321865082
+      ]
+    ],
+    "dimensions": [
+      1.42,
+      1.92,
+      0.1285
+    ],
+    "lod0": {
+      "bytes": 609248,
+      "sha256": "bffb71bfaf65af1ea8e2856b538bc2a1b4861f4ebb77f36849e332dc66d287de",
+      "mesh_triangles": 18852,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 210904,
+      "sha256": "d8f420b9070e31cb336612a783a3d9efe5c768d6761b0507805bcbb9396ebdb8",
+      "mesh_triangles": 5860,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A31",
+    "name": "OCSP応答ディスク",
+    "category": "concept",
+    "bounds": [
+      [
+        -0.41999998688697815,
+        0.029999999329447746,
+        -0.05999999865889549
+      ],
+      [
+        0.41999998688697815,
+        0.8700000047683716,
+        0.09399999678134918
+      ]
+    ],
+    "dimensions": [
+      0.84,
+      0.84,
+      0.154
+    ],
+    "lod0": {
+      "bytes": 117904,
+      "sha256": "4c2a62bf8c5682635ddc87667db69c849b18c7277ae907d2c787aa6b90015a32",
+      "mesh_triangles": 2688,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 46988,
+      "sha256": "a056408ebc02df7e5c9871790aa9052d4ba162b0577bfc624c85e7663dcbb153",
+      "mesh_triangles": 960,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A32",
+    "name": "証明書チェーン接続環",
+    "category": "concept",
+    "bounds": [
+      [
+        -0.7369999885559082,
+        -0.05700000002980232,
+        -0.3070000112056732
+      ],
+      [
+        0.7369999885559082,
+        0.5569999814033508,
+        0.3070000112056732
+      ]
+    ],
+    "dimensions": [
+      1.474,
+      0.614,
+      0.614
+    ],
+    "lod0": {
+      "bytes": 105172,
+      "sha256": "0d0c39ed1c597cd0bba96dd1161626cd5717f127fe12f5561e7b08740053b73e",
+      "mesh_triangles": 3456,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 32200,
+      "sha256": "9e498a75b4c0e442e30893ecd57183cb79e250e48ddbc3c71ebd3dce7dd62b6a",
+      "mesh_triangles": 960,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A33",
+    "name": "TLS鍵共有の概念展示",
+    "category": "concept",
+    "bounds": [
+      [
+        -0.8999999761581421,
+        0.0,
+        -0.44999998807907104
+      ],
+      [
+        0.8999999761581421,
+        1.1160000562667847,
+        0.44999998807907104
+      ]
+    ],
+    "dimensions": [
+      1.8,
+      1.116,
+      0.9
+    ],
+    "lod0": {
+      "bytes": 294068,
+      "sha256": "f4cba76d4974538a8afbcd416dc649a4a3d217172a820d004374e51b016ee679",
+      "mesh_triangles": 8844,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 82160,
+      "sha256": "7de8c6a95559dcddd13ae353e92a7f312df8423b681ec93fdfce4ae2ede61b8b",
+      "mesh_triangles": 2140,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A34",
+    "name": "発行承認バッジ",
+    "category": "concept",
+    "bounds": [
+      [
+        -0.36000001430511475,
+        0.019999999552965164,
+        -0.04500000178813934
+      ],
+      [
+        0.36000001430511475,
+        0.7400000095367432,
+        0.09000000357627869
+      ]
+    ],
+    "dimensions": [
+      0.72,
+      0.72,
+      0.135
+    ],
+    "lod0": {
+      "bytes": 97612,
+      "sha256": "055542dee0996c14c631f0a98c2430d0f7d9f1dd0a5f1ed13e3277d332df0190",
+      "mesh_triangles": 2304,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 38340,
+      "sha256": "664e12c0f7a4e896c09fab99f916c5c4e16fb46319b3351c718af437c68efc77",
+      "mesh_triangles": 800,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A35",
+    "name": "有効期限クロック",
+    "category": "concept",
+    "bounds": [
+      [
+        -0.5,
+        0.03999999910593033,
+        -0.054999999701976776
+      ],
+      [
+        0.5,
+        1.0399999618530273,
+        0.13099999725818634
+      ]
+    ],
+    "dimensions": [
+      1.0,
+      1.0,
+      0.186
+    ],
+    "lod0": {
+      "bytes": 327124,
+      "sha256": "4a5f08d0f0d358c5065ea59ff70c5f9c7a388b4e83efb52c518fed1793caefbb",
+      "mesh_triangles": 6144,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 140752,
+      "sha256": "1381aeb874615f2f8438da99ced0ced975f5a20879d2f673e27487e54b0e2e87",
+      "mesh_triangles": 2560,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A36",
+    "name": "拒否状態の遮断パネル",
+    "category": "concept",
+    "bounds": [
+      [
+        -0.5849999785423279,
+        0.0,
+        -0.03750000149011612
+      ],
+      [
+        0.5849999785423279,
+        1.3200000524520874,
+        0.10599999874830246
+      ]
+    ],
+    "dimensions": [
+      1.17,
+      1.32,
+      0.1435
+    ],
+    "lod0": {
+      "bytes": 73972,
+      "sha256": "30b15734b7b864fa15d45be9270fa9ffd762a3e55069bc015d570083171447c7",
+      "mesh_triangles": 1740,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 30312,
+      "sha256": "5c90ca0289d46d9872ff86f3a2c3416573e3df24d916a9b73f201f3479147d1e",
+      "mesh_triangles": 620,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A37",
+    "name": "案内・審査ロボット",
+    "category": "character",
+    "bounds": [
+      [
+        -0.47900000393390657,
+        0.0,
+        -0.3499999940395355
+      ],
+      [
+        0.47900000393390657,
+        1.8160000026226044,
+        0.3659999966621399
+      ]
+    ],
+    "dimensions": [
+      0.958,
+      1.816,
+      0.716
+    ],
+    "lod0": {
+      "bytes": 1012316,
+      "sha256": "96dcd012ea379979c15306ec5082a1919432dbaae210b6aafd953caf7a23d32c",
+      "mesh_triangles": 29772,
+      "nodes": 4,
+      "animations": [
+        "Guide_Point"
+      ]
+    },
+    "lod1": {
+      "bytes": 298792,
+      "sha256": "98bc60442bb142ea7ce898edd269225d47b691fb5358070c8c5a8a9f1bf8a2b0",
+      "mesh_triangles": 7492,
+      "nodes": 4,
+      "animations": [
+        "Guide_Point"
+      ]
+    }
+  },
+  {
+    "id": "A38",
+    "name": "見学用ベンチ",
+    "category": "office",
+    "bounds": [
+      [
+        -1.0499999523162842,
+        0.0,
+        -0.33000001311302185
+      ],
+      [
+        1.0499999523162842,
+        0.5550000071525574,
+        0.33000001311302185
+      ]
+    ],
+    "dimensions": [
+      2.1,
+      0.555,
+      0.66
+    ],
+    "lod0": {
+      "bytes": 156840,
+      "sha256": "1f527b9bec02d07865196553bc136531ea58863d5cc1269c79d18e48356d89b4",
+      "mesh_triangles": 4860,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 55076,
+      "sha256": "b2dcc7fd87897f4b33e48bfcdc79524f66f94b8245f1d26d4dbbba901a301900",
+      "mesh_triangles": 1500,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A39",
+    "name": "床配線トレイ",
+    "category": "architecture",
+    "bounds": [
+      [
+        -1.0,
+        -3.469446951953614e-18,
+        -0.09000000357627869
+      ],
+      [
+        1.0,
+        0.06700000166893005,
+        0.09000000357627869
+      ]
+    ],
+    "dimensions": [
+      2.0,
+      0.067,
+      0.18
+    ],
+    "lod0": {
+      "bytes": 403752,
+      "sha256": "d60e24c751550a51a615226a77798ba10db1e70e57b1dbc71389c73d8ddba7e3",
+      "mesh_triangles": 12636,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 76096,
+      "sha256": "355b1a918ebba1ca334b782ed19457f7ecb8b581864a93f887e811b9a368ec54",
+      "mesh_triangles": 2100,
+      "nodes": 1,
+      "animations": []
+    }
+  },
+  {
+    "id": "A40",
+    "name": "証明書スタンド",
+    "category": "concept",
+    "bounds": [
+      [
+        -0.4650000035762787,
+        0.0,
+        -0.2849999964237213
+      ],
+      [
+        0.4650000035762787,
+        0.7200000286102295,
+        0.2849999964237213
+      ]
+    ],
+    "dimensions": [
+      0.93,
+      0.72,
+      0.57
+    ],
+    "lod0": {
+      "bytes": 84536,
+      "sha256": "86e63faf4dec4e05306e3c8c068fc620d01e61426d6fc1f613a635e76026817a",
+      "mesh_triangles": 2328,
+      "nodes": 1,
+      "animations": []
+    },
+    "lod1": {
+      "bytes": 32176,
+      "sha256": "f69eb37ec58f2e29aec09504c6c9026bd6721058652f2e9cfea828bdc6b25294",
+      "mesh_triangles": 760,
+      "nodes": 1,
+      "animations": []
+    }
+  }
+]

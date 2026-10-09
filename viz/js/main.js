@@ -53,13 +53,36 @@ sun.shadow.bias = -0.0004;
 sun.shadow.normalBias = 0.02;
 scene.add(sun);
 
-const world = buildWorld(scene);
+const quality = ['hero', 'balanced'].includes(params.get('quality')) ? params.get('quality') : 'lite';
+const status = document.getElementById('qualityStatus');
+let world;
+try {
+  if (quality === 'lite') world = buildWorld(scene);
+  else {
+    status.textContent = 'GLBと共有PBR材質を読み込み中…';
+    const { buildAtlasWorld } = await import('./atlas-world.js');
+    world = await buildAtlasWorld(scene, { lod: quality === 'hero' ? 0 : 1, renderer,
+      onProgress: (n,total) => { status.textContent = `GLB ${n}/${total} 読み込み`; } });
+  }
+  status.textContent = quality === 'lite' ? '軽量・コード生成版' : `分割GLB 40種／${quality === 'hero' ? 'LOD0・4K' : 'LOD1・2K'}／美術仕上げは継続中`;
+} catch (error) {
+  document.getElementById('fallback').hidden = false;
+  status.textContent = `読込失敗（成功扱いにしません）: ${error.message}`;
+  throw error;
+}
+const qualitySelect = document.getElementById('quality');
+qualitySelect.value = quality;
+qualitySelect.addEventListener('change', e => {
+  const u = new URL(location.href); u.searchParams.set('quality', e.target.value);
+  u.searchParams.set('t', String(ui.t)); u.searchParams.set('scenario', ui.scenario);
+  u.searchParams.set('autoplay', '0'); location.assign(u);
+});
 
 // ---------------------------------------------------------------------------
 // カメラ
 // ---------------------------------------------------------------------------
 const CAMS = {
-  overview: { target: [0, 0.5, 0], offset: [0, 17, 21] },
+  overview: { target: [0, 0.5, 0], offset: quality === 'lite' ? [0, 17, 21] : [1, 22, 30] },
   root: { target: [-8, 1.2, -6], offset: [2.5, 5, 9] },
   trust: { target: [-5, 1.2, 0], offset: [4, 9, 12] },
   server: { target: STATIONS.server, offset: [1.5, 2.5, 5.5] },
@@ -91,10 +114,10 @@ controls.addEventListener('start', () => { camGoal.active = false; });
 // ---------------------------------------------------------------------------
 const ui = {
   t: Number(params.get('t') ?? 0),
-  playing: params.get('autoplay') !== '0',
+  playing: params.get('autoplay') !== '0' && !matchMedia('(prefers-reduced-motion: reduce)').matches,
   speed: 1,
   scenario: SCENARIOS[params.get('scenario')] ? params.get('scenario') : 'lesson',
-  autoCam: params.get('autocam') !== '0',
+  autoCam: params.get('autocam') !== '0' && !matchMedia('(prefers-reduced-motion: reduce)').matches,
   lastScene: -1,
   events: [],
 };
@@ -220,6 +243,7 @@ const GATE_COLORS = {
 const tmp = new THREE.Vector3();
 
 function apply(st, time) {
+  if (world.apply) { world.apply(st, time, camera); return; }
   // トークン
   for (const [name, obj] of Object.entries(world.tokens)) {
     const v = st.tokens[name];
@@ -351,7 +375,7 @@ function frame() {
   const st = lessonState(ui.t, ui.scenario);
   resize();
   updateUI(st);
-  apply(st, elapsed);
+  apply(st, ui.playing ? elapsed : st.t);
   if (camGoal.active) {
     const k = 1 - Math.pow(0.02, dt);
     camera.position.lerp(camGoal.pos, k);
@@ -372,6 +396,6 @@ if (params.has('capture')) {
   camera.position.set(c.target[0] + c.offset[0], c.target[1] + c.offset[1], c.target[2] + c.offset[2]);
   ui.autoCam = false;
 }
-window.__atelier = { ui, lessonState, world, renderer, scene, describe: () => world.describe(), loadEventsDoc };
+window.__atelier = { ui, lessonState, world, renderer, scene, camera, quality, describe: () => world.describe(), loadEventsDoc };
 requestAnimationFrame(frame);
 document.body.classList.add('ready');
